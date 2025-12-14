@@ -13,7 +13,7 @@ lic_ = """
    See the License for the specific language governing permissions and
    limitations under the License.
 """
-from .global import *
+from .init import *
 
 def teme_to_ecef_km(pos_teme_km: np.ndarray, epoch_dt: datetime.datetime):
     desc_ = """ -----------------------
