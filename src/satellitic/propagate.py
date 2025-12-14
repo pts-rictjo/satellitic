@@ -13,7 +13,7 @@ lic_ = """
    See the License for the specific language governing permissions and
    limitations under the License.
 """
-from .global import *
+from .init import *
 
 # -----------------------
 # Propagation: SGP4 to TEME/ECI
