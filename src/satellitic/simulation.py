@@ -44,7 +44,7 @@ def run_snapshot_simulation(
     # 1) gather TLEs (CelesTrak primary, local fallback)
     tles = []
     if local_tle_file is None :
-		from .iotools import fetch_tle_group_celestrak, parse_tle_text
+        from .iotools import fetch_tle_group_celestrak, parse_tle_text
         for g in groups:
             try:
                 print(f"Fetching TLEs for group '{g}' from CelesTrak...")
@@ -60,7 +60,7 @@ def run_snapshot_simulation(
                 print(f"  failed to fetch {g} from CelesTrak: {e}; continuing")
 
     if len(tles) == 0 :
-		from .iotools import load_local_tles
+        from .iotools import load_local_tles
         # local file
         print("No TLEs downloaded from CelesTrak; attempting to load local TLE file:", local_tle_file)
         try:
