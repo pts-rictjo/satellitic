@@ -190,7 +190,7 @@ def aggregate_beams_to_ground(
     use_gpu = use_gpu and CUPY_AVAILABLE
     xp = cp if use_gpu else np
     if compute_power_map :
-        from .power import *
+        from .power import link_budget_received_db
 
     N = sat_ecef_km.shape[0]
     G = ground_lat_rad.size
