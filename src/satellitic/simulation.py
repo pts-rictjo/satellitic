@@ -1,3 +1,4 @@
+from .global import *
 # -----------------------
 # Top-level pipeline
 # -----------------------
@@ -163,3 +164,37 @@ def run_snapshot_simulation(
         "cofreq_csv" : out_cofreq_csv ,
         "nvis_csv"   : out_nvis_csv   
     }
+
+if __name__ == "__main__":
+    try:
+        out = run_snapshot_simulation(
+            out_dir="sim_20251212_dev",
+            groups=ALL_CELESTRAK_GROUPS,	# CELESTRAK_GROUPS,
+            local_tle_file="tle_local.txt", 	# LOCAL_TLE_FALLBACK,
+            N_target=10000,               	# set to 35000 for full-scale runs (ensure resources)
+            grid_nlat=120,
+            grid_nlon=240,
+            model="multibeam",
+            n_beams_per_sat=7,
+            beam_half_angle_deg=0.8,
+            beam_pattern="hex",
+            beam_max_tilt_deg=10.0,
+            beam_gain_model="gaussian",
+            gain_threshold=0.25,
+            frequency_band="E-band",
+            preferred_bands=PREFERRED_BANDS,
+            chunk_sat=256,
+            chunk_ground=20000,
+            use_gpu_if_available=False,   # set True if you installed cupy
+            compute_power_map = True,
+            do_random_sampling = True,
+        )
+        print("Simulation finished. Outputs:", out)
+    except Exception as err:
+        print("Error during simulation:", err)
+        traceback.print_exc()
+
+    import pandas as pd
+    tdf = pd.concat( (	pd.read_csv(out['total_csv']),	pd.read_csv(out['pref_csv']),
+			pd.read_csv(out['cofreq_csv']),	pd.read_csv(out['nvis_csv'])) )
+    print ( tdf .describe() )
