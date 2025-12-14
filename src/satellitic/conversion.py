@@ -114,3 +114,7 @@ def geodetic_to_ecef_m(lat_rad: np.ndarray, lon_rad: np.ndarray, alt_m: np.ndarr
     y = (N + alt_m) * cosl * np.sin(lon_rad)
     z = (N * (1 - e2) + alt_m) * sinl
     return np.stack([x,y,z], axis=-1)
+
+
+def save_flat_csv(flat_arr: np.ndarray, filename: str, header: str = "value"):
+    np.savetxt(filename, flat_arr, delimiter=",", header=header, comments='')
