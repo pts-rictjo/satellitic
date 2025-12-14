@@ -4,10 +4,6 @@ In order to create a similar image as this:
 
 ![text](https://raw.githubusercontent.com/pts-rictjo/satellitic/674bec3d24d930ecb37ec6bdce9e4cd7c238a03e/examples/cofreq_heatmap.png)
 
-<picture>
-<img src="[img_girl.jpg](https://raw.githubusercontent.com/pts-rictjo/satellitic/674bec3d24d930ecb37ec6bdce9e4cd7c238a03e/examples/cofreq_heatmap.png)">
-</picture>
-
 run the below code
 ```
 import satellitic.simulation as satsim
