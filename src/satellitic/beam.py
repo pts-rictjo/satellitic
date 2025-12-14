@@ -196,6 +196,7 @@ def aggregate_beams_to_ground(
     G = ground_lat_rad.size
 
     # Build ground ECEF (meters) and normals
+    from .convert import geodetic_to_ecef_m
     alt0_m = np.zeros_like(ground_lat_rad)
     r_g_m  = geodetic_to_ecef_m(ground_lat_rad, ground_lon_rad, alt0_m)  # (G,3)
     n_g    = r_g_m / np.linalg.norm(r_g_m, axis=1, keepdims=True)
