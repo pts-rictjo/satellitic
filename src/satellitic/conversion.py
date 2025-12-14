@@ -99,3 +99,18 @@ def ecef_to_geodetic_wgs84_km(r_ecef_km: np.ndarray):
     N = a / np.sqrt(1 - e2 * sinl * sinl)
     alt = p / np.cos(lat) - N
     return lat, lon, alt * M2KM
+
+
+
+
+# -----------------------
+# ECEF/Geodetic helpers
+# -----------------------
+def geodetic_to_ecef_m(lat_rad: np.ndarray, lon_rad: np.ndarray, alt_m: np.ndarray):
+    a = WGS84_A_M; e2 = WGS84_E2
+    sinl = np.sin(lat_rad); cosl = np.cos(lat_rad)
+    N = a / np.sqrt(1 - e2*sinl*sinl)
+    x = (N + alt_m) * cosl * np.cos(lon_rad)
+    y = (N + alt_m) * cosl * np.sin(lon_rad)
+    z = (N * (1 - e2) + alt_m) * sinl
+    return np.stack([x,y,z], axis=-1)
