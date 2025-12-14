@@ -1,4 +1,19 @@
-from .global import *
+lic_ = """
+   Copyright 2025 Richard Tjörnhammar
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+"""
+from .init import *
 # -----------------------
 # Top-level pipeline
 # -----------------------
@@ -29,6 +44,7 @@ def run_snapshot_simulation(
     # 1) gather TLEs (CelesTrak primary, local fallback)
     tles = []
     if local_tle_file is None :
+		from .iotools import fetch_tle_group_celestrak, parse_tle_text
         for g in groups:
             try:
                 print(f"Fetching TLEs for group '{g}' from CelesTrak...")
@@ -44,6 +60,7 @@ def run_snapshot_simulation(
                 print(f"  failed to fetch {g} from CelesTrak: {e}; continuing")
 
     if len(tles) == 0 :
+		from .iotools import load_local_tles
         # local file
         print("No TLEs downloaded from CelesTrak; attempting to load local TLE file:", local_tle_file)
         try:
@@ -65,10 +82,12 @@ def run_snapshot_simulation(
     # 2) propagate to epoch
     epoch = datetime.datetime.utcnow()
     print("Propagating TLEs to epoch (UTC):", epoch.isoformat())
+    from .propagate import propagate_tles_to_epoch
     names, pos_teme_km, vel_teme_km_s, satrecs = propagate_tles_to_epoch(tles, epoch)
     print("  propagated:", pos_teme_km.shape[0], "satellites")
 
     # 3) TEME -> ECEF (km)
+    from .convert import teme_to_ecef_km, ecef_to_geodetic_wgs84_km
     print("Converting TEME -> ECEF (km) (astropy fallback if available)")
     pos_ecef_km = teme_to_ecef_km(pos_teme_km, epoch)
 
@@ -93,6 +112,7 @@ def run_snapshot_simulation(
         print("CuPy detected and will be used for parts of computation (GPU).")
 
     # 7) aggregate beams to ground
+    from .beam import aggregate_beams_to_ground
     print("Aggregating beams to ground (this can be slow for large N; tune chunks)...")
     t0 = time.time()
     total_counts, pref_counts, cofreq_map, power_dbw, Nvis = aggregate_beams_to_ground(
@@ -132,11 +152,13 @@ def run_snapshot_simulation(
     out_cofreq_png = os.path.join(out_dir, "cofreq_heatmap.png")
 
     print("Saving heatmaps...")
+    from .visualise import plot_heatmap
     plot_heatmap(total_grid, lat_vals, lon_vals, out_total_png, title="Total beams")
     plot_heatmap(pref_grid, lat_vals, lon_vals, out_pref_png, title="Preferred-band beams")
     plot_heatmap(combined_cofreq_grid, lat_vals, lon_vals, out_cofreq_png, title="Co-frequency beams")
 
     # Save CSVs and grids
+    from .convert import save_flat_csv
     out_nvis_csv = os.path.join(out_dir, "nvis_beams.csv")
     out_total_csv = os.path.join(out_dir, "total_beams.csv")
     out_pref_csv = os.path.join(out_dir, "preferred_beams.csv")
