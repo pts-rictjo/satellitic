@@ -23,3 +23,37 @@ Since S.1503 requires :
 - Outputs can be fed directly into S.1503-style EPFD or interference calculations.
 
 So in a compliance workflow, SGP4 provides the orbital prediction engine for satellites, which is exactly what S.1503 needs in its functional description.
+
+# Conceptual flow
+´´´
+         ┌─────────────────────────────────────────────┐
+         │      Simulation Tool                        │
+         │      ITU-R S.1503 compliance                │
+         └─────────────────────────────────────────────┘
+                          |
+                          │
+                  ┌───────┴─────────┐
+                  │  Propagation    │
+                  │  Module         │
+                  │  (satellitic)   │
+                  │  Uses SGP4      │
+                  └────────┬────────┘
+                           │
+      ┌────────────────────┴─────────────────────┐
+      │ Compute satellite positions from TLEs    │
+      │ • ECI/TEME coordinates                   │
+      │ • Time-stepped positions                 │
+      │ • Perturbations (drag, oblateness, etc.) │
+      └────────────────────┬─────────────────────┘
+                           │
+                  ┌────────┴────────┐
+                  │ Interference &  │
+                  │ EPFD Calculation│
+                  │ (as per S.1503) │
+                  └─────────────────┘
+                           │
+                  ┌────────┴───────────┐
+                  │ Compliance outputs │
+                  │ (masks, maps)      │
+                  └────────────────────┘
+´´´
