@@ -14,6 +14,112 @@ lic_ = """
    limitations under the License.
 """
 from .init import *
+from sgp4.api import Satrec
+from sgp4.conveniences import jday_datetime
+import numpy as np
+from datetime import datetime
+import struct
+from .constants import celestial_types
+
+TYPE_PLANET     = celestial_types['Planet']
+TYPE_STAR       = celestial_types['Star']
+TYPE_MOON       = celestial_types['Moon']
+TYPE_SATELLITE  = celestial_types['Satellit']
+TYPE_OTHER      = celestial_types['Other']
+
+class TrajectoryManager:
+    def __init__(self, filename, particle_type, N_steps, dt_frame):
+        """
+        particle_type : array-like, shape (N,), dtype uint8
+        """
+        self.f = open(filename, "wb")
+
+        particle_type = np.asarray(particle_type, dtype=np.uint8)
+        self.N = particle_type.size
+        self.N_steps = N_steps
+
+        # ---- header ----
+        self.f.write(b"TRJ1")
+        self.f.write(struct.pack("iid", self.N, self.N_steps, dt_frame))
+        self.f.write(particle_type.tobytes())
+
+    def write_step(self, r_np):
+        """
+        r_np : (N,3) float array
+        """
+        r32 = np.asarray(r_np, dtype=np.float32, order="C")
+        self.f.write(r32.tobytes())
+
+    def close(self):
+        self.f.close()
+        
+    def read_trj(self,traj_file):
+        with open("trajectory.trj", "rb") as f:
+            magic = f.read(4)
+            assert magic == b"TRJ1"
+
+            N, Nt, dt_frame = struct.unpack("iid", f.read(8))
+
+            particle_type = np.frombuffer(
+                f.read(N), dtype=np.uint8
+            )
+            data = np.frombuffer(f.read(), dtype=np.float32)
+            traj = data.reshape(Nt, N, 3)
+        
+        print("""position of particle i at timestep t in : traj[t, i]
+planets = traj[:, particle_type == TYPE_PLANET]
+sats    = traj[:, particle_type == TYPE_SATELLITE]""" )
+        return traj, particle_type, dt_frame ,N ,Nt
+
+def read_tles(filename):
+    sats = []
+    with open(filename) as f:
+        lines = f.readlines()
+    i=0
+    while i + 2 < len(lines):
+        name = lines[i].strip()
+        l1   = lines[i+1].strip()
+        l2   = lines[i+2].strip()
+        sats.append((name, Satrec.twoline2rv(l1, l2)))
+        i+=3
+
+    return sats
+
+def tle_to_state(name,sat, epoch):
+    jd, fr = jday_datetime(epoch)
+    e, r, v = sat.sgp4(jd, fr)
+
+    if e == 0:
+        r = np.array(r) * 1000.0   # km → m
+        v = np.array(v) * 1000.0   # km/s → m/s
+        return r, v
+    elif e != 0:
+        print(f"Skipping {name}: SGP4 error {e}")
+        return None,None
+
+
+def tles_to_states(sats, epoch):
+    r_list = []
+    v_list = []
+    names  = []
+
+    Nskipped = 0
+    for name, sat in sats:
+        r, v = tle_to_state( name, sat, epoch)
+        if r is None or v is None :
+            Nskipped+=1
+            continue
+        r_list.append(r)
+        v_list.append(v)
+        names.append(name)
+    print('Skipped',Nskipped,'due to epoch error (degraded orbit information)')
+
+    return (
+        np.stack(r_list),
+        np.stack(v_list),
+        names
+    )
+
 
 def fetch_tle_group_celestrak(group: str, timeout: int = 30) -> str:
     url = f"https://celestrak.com/NORAD/elements/gp.php?GROUP={group}&FORMAT=tle"
