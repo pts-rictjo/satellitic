@@ -1,5 +1,5 @@
 [build-system]
-requires = [ "hatchling >= 1.26", "pandas >= 2.0.3", "numpy >= 1.25.1", "matplotlib >= 3.7.2", "sgp4 >= 2.24", "astropy >= 5.1", "requests >= 2.31.0","vispy>=0.15.2" ]
+requires = [ "hatchling >= 1.26", "pandas >= 2.0.3", "numpy >= 1.25.1", "matplotlib >= 3.7.2", "sgp4 >= 2.24", "astropy >= 5.1", "requests >= 2.31.0", "vispy >= 0.15.2", "jax >= 0.8.1" ]
 build-backend = "hatchling.build"
 
 [project]
