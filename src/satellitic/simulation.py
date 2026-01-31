@@ -133,6 +133,7 @@ if bUseJax :
     RE	    = constants('RE')
     MU_E	= constants('MU_E')
 
+    # @jax.jit
     def accel_j2(r_rel):
         eps_ = 50
         """
@@ -269,9 +270,14 @@ def newtonian_simulator( bAnimated = True ,
         dt_frame = dt * steps_per_frame
 
     if bAnimated :
-        # ---- VisPy 2D projected solar system plot ----
-        from vispy import app, scene
-        from vispy.scene import visuals
+        from .visuals import choose_vispy_backend
+        bGUI = choose_vispy_backend()
+        if bGUI :
+            # ---- VisPy 2D projected solar system plot ----
+            from vispy import app, scene
+            from vispy.scene import visuals
+        else:
+            print('Nonfatal error: Could not connect to backend GUI (pyqt5 etc). Will not run pyvis')
     
     const			= constants()
     #
@@ -427,7 +433,7 @@ def newtonian_simulator( bAnimated = True ,
     sizes = np.full(N, 2.0, dtype=np.float32)
     colors = np.full((N, 4), [0.5, 0.5, 0.5, 1.0], dtype=np.float32)
 
-    if bAnimated:
+    if bAnimated and bGUI:
         # special bodies
         sizes[idx_sun]   = 20
         sizes[idx_earth] = 16
@@ -522,7 +528,7 @@ def newtonian_simulator( bAnimated = True ,
 
         writer.close()
 
-    if bAnimated :
+    if bAnimated and bGUI :
         # Animation timer
         def update(event):
             r_new = next(sim)
