@@ -252,7 +252,6 @@ def simulate(r, v, m, dt, Nsteps=None, steps_per_frame=10, idx_earth=None, idx_l
                 r, v, a = vverlet_a(dt, r, v, a, m, idx_earth, idx_leo)
             yield r
 
-
 def newtonian_simulator( bAnimated = True ,
     tle_file_name	= None  ,
     Nsteps			= None ,
@@ -355,7 +354,7 @@ def newtonian_simulator( bAnimated = True ,
     print('Simulating N-body Newtonian celestial dynamics')
     print( Ncurrent , 'body problem')
     print('Velocity verlet updates')
-    if len(idx_leo)>0 :
+    if not idx_leo is None :
         print('Applying J2 corrections to LEO satellites')
     particle_type = np.full(Ncurrent, TYPE_OTHER, dtype=np.uint8)
     particle_type[idx_sun]   = TYPE_STAR
@@ -377,7 +376,7 @@ def newtonian_simulator( bAnimated = True ,
         F		= forceG(rr,mm)
     a		= accel(r, m, idx_earth, idx_leo)
     #
-    if bVerbose:
+    if bVerbose and bLegacy:
         print ( np.shape((F.T/m).T) )
         print ( 'accelerations:', (F.T/m).T , a )
         print ( idx_earth, idx_leo )
@@ -385,7 +384,7 @@ def newtonian_simulator( bAnimated = True ,
         # DO SINGLE UPDATE
         print ( 'DAYS:' , Nsteps*dt/60/60/24 )
 
-    if bLegacy :
+    if bLegacy:
         print('WARNING OLD CODE REMNANT')
         if Nsteps is None :
             print('Call simulator with Nsteps>0')
