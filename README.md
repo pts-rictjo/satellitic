@@ -45,5 +45,10 @@ print("Simulation finished. Outputs:", out)
 
 import pandas as pd
 tdf = pd.concat( ( pd.read_csv(out['total_csv']),	pd.read_csv(out['pref_csv']), pd.read_csv(out['cofreq_csv']),	pd.read_csv(out['nvis_csv'])) )
+
+# Forcing qt5 in VisPy
+>>> from vispy import app
+... print(app.use_app('pyqt5', True))  # force PyQt5
+
 print ( tdf .describe() )
 ```
