@@ -54,8 +54,12 @@ print ( tdf .describe() )
 ... print(app.use_app('pyqt5', True))  # force PyQt5
 ```
 # To view an orbital simulation
+Note that the streaming 3D vispy visualisation cannot handle huge amounts of satellites. Test with a small tle file and then offload to the trajectory file
 ```
 >>> from satellitic.simulation import newtonian_simulator
 ImportSuccess: HAS JAX IN ENVIRONMENT
 >>> newtonian_simulator(bAnimated=True, tle_file_name='data/local_small_tle.txt')
+```
+To write a trajectory file you can specify
+>>> newtonian_simulator(bAnimated=False, tle_file_name='data/local_small_tle.txt' , Nsteps=10000 )
 ```
