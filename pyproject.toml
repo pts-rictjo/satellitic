@@ -28,6 +28,7 @@ dependencies = [
   "vispy>=0.13",
   "matplotlib>=3.7",
   "requests>=2.31",
+  "pyqt5>=5.15",
 ]
 
 [project.urls]
