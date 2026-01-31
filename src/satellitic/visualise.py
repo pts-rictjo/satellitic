@@ -15,6 +15,38 @@ lic_ = """
 """
 from .init import *
 # -----------------------
+# backend & animation helpers
+# -----------------------
+def choose_vispy_backend():
+    """Try to set a VisPy GUI backend in order of preference."""
+    import vispy
+    backend_set = False
+
+    try:
+        import PyQt5
+        vispy.use('pyqt5')
+        backend_set = True
+    except ImportError:
+        try:
+            import PySide6
+            vispy.use('pyside6')
+            backend_set = True
+        except ImportError:
+            try:
+                import glfw
+                vispy.use('glfw')
+                backend_set = True
+            except ImportError:
+                backend_set = False
+
+    if not backend_set:
+        print(
+            "WARNING: No VisPy GUI backend found. "
+            "Install pyqt5, pyside6, or glfw to visualize."
+        )
+    return backend_set
+
+# -----------------------
 # plotting & saving helpers
 # -----------------------
 def plot_heatmap(grid2d: np.ndarray, lat_vals_rad: np.ndarray, lon_vals_rad: np.ndarray, filename: str, title: str = ""):
@@ -28,3 +60,5 @@ def plot_heatmap(grid2d: np.ndarray, lat_vals_rad: np.ndarray, lon_vals_rad: np.
     plt.tight_layout()
     plt.savefig(filename, dpi=200)
     plt.close()
+
+
