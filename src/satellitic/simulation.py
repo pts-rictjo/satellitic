@@ -18,8 +18,8 @@ from .init import *
 # Top-level Newtonian dynamics
 # -----------------------
 import numpy as np
-from .constants import constants_solar_system
-from .constants import celestial_types
+from .constants import constants_solar_system, solarsystem
+from .constants import celestial_types, build_run_system
 
 TYPE_PLANET     = celestial_types['Planet']
 TYPE_STAR       = celestial_types['Star']
@@ -251,7 +251,219 @@ def simulate(r, v, m, dt, Nsteps=None, steps_per_frame=10, idx_earth=None, idx_l
                 r, v, a = vverlet_a(dt, r, v, a, m, idx_earth, idx_leo)
             yield r
 
-def newtonian_simulator( bAnimated = True ,
+def newtonian_simulator( \
+    run_parameters      = { 'dt':5e1,
+            'Nsteps':None,
+            'steps_per_frame':100 } ,
+    system_topology     = solarsystem ,
+    system_constants    = constants_solar_system ,
+    satellite_topology  = None ,
+    bAnimated = False ,
+    trajectory_filename = "trajectory.trj", bVerbose = False ) :
+    #
+    Nsteps			= run_parameters['Nsteps']  
+    dt				= run_parameters['dt']   
+    steps_per_frame = run_parameters['steps_per_frame']
+    if bVerbose :
+        print(f"""Starting simulation of {system_topology}
+            using {run_parameters} """)
+        if not satellite_topology is None:
+            print( f"""with satellite information from :\n {satellite_topology} """)
+
+    run_system = build_run_system( solarsystem,
+        constants_solar_system ,
+        satellite_topology )
+        
+    run_system.apply_barycentric_motion_correction()
+    
+    r, v, m, stypes , snames = run_system.phase_state()
+    if bVerbose :
+        print('Built initial system phase space')
+        print( r , '\n' , v , '\n' , m )
+
+    const = constants()
+    xp	= np
+    r   = backend_array(r, xp)
+    v   = backend_array(v, xp)
+    m   = backend_array(m, xp)
+    #
+    Ncurrent = len(m)
+    print( 'Simulating N-body Newtonian celestial dynamics')
+    print( Ncurrent , 'body problem' )
+    print( 'Velocity verlet updates' )
+    Nsat = len( np.where( stypes == celestial_types['Satellit'])[0] )
+    if Nsat > 0 :
+        print(f'Applied J2 corrections to {Nsat} LEO satellites')
+    #
+    # Still need to generalize this
+    idx_earth   = run_system.find_indices_of('Earth')[0]
+    idx_sun     = run_system.find_indices_of('Sun')[0]
+    idx_moon    = run_system.find_indices_of('EarthMoon')[0]
+    idx_leo     = run_system.find_indices_of('LEO')
+
+    if bVerbose :
+        print('Celestial bodies', idx_earth,idx_moon,idx_sun )
+        print('Satellites', idx_leo )
+
+    # Simulation generator
+    sim = simulate(
+        r, v, m,
+        dt=dt , Nsteps=Nsteps ,
+        steps_per_frame=steps_per_frame,
+        idx_earth=idx_earth,
+        idx_leo=idx_leo
+    )
+
+    if not Nsteps is None :
+        from tle_io import TrajectoryManager
+        writer = TrajectoryManager(
+            trajectory_filename,
+            particle_type=particle_type,
+            N_steps=Nsteps, dt_frame=dt_frame
+        )
+        for step in range(Nsteps):
+            r_new = next(sim)
+            writer.write_step(np.asarray(r_new))
+        writer.close()
+
+
+    if bAnimated :
+        # ---- VisPy 2D projected solar system plot ----
+        from vispy import app, scene
+        from vispy.scene import visuals
+
+        # ---- State data container for yields ----
+        r_np = np.asarray(r)
+        N = r_np.shape[0]
+        sizes = np.full(N, 20, dtype=np.float32)
+        colors = np.full((N, 4), [0.5, 0.5, 0.5, 1.0], dtype=np.float32)    
+
+        # special bodies
+        sizes[idx_sun]   = 30
+        sizes[idx_moon]  = 8
+
+        colors[idx_sun]   = [1.0, 1.0, 0.0, 1.0]   # yellow
+        colors[idx_earth] = [0.0, 0.4, 1.0, 1.0]   # blue
+        colors[idx_moon]  = [1.0, 1.0, 1.0, 1.0]   # white
+
+        AU = constants('AU')
+
+        # ---- and visualisation : part 1 ----
+        #
+        # Canvas & view
+        canvas = scene.SceneCanvas(
+            keys='interactive',
+            size=(800, 800),
+            bgcolor='black',
+            show=True
+        )
+
+        # Earth-centric 3D canvas
+        canvas_ec = scene.SceneCanvas(
+            keys='interactive',
+            size=(400, 400),
+            bgcolor='black',
+            show=True,
+            title='Earth-centric view'
+        )
+        Re = constants('REarth')
+        R = constants('DMoon')  # ~ Moon distance
+        view_ec = canvas_ec.central_widget.add_view()
+        view_ec.camera = scene.cameras.TurntableCamera(
+            fov=90,
+            distance=Re*2.5
+        )
+        f_=1.05
+        view_ec.camera.set_range(
+            x=(-f_*R, f_*R),
+            y=(-f_*R, f_*R),
+            z=(-f_*R, f_*R)
+        )
+        earth_group = np.concatenate([[idx_moon], idx_leo])
+        r_ec = r_np[earth_group] - r_np[idx_earth]
+        markers_ec = visuals.Markers()
+        markers_ec.set_data(
+            r_ec,
+            size=6,
+            face_color=[1, 1, 1, 1]
+        )
+        view_ec.add(markers_ec)
+
+        earth = visuals.Sphere(
+            radius=Re,
+            method='latitude',
+            color=(0.1, 0.3, 1.0, 0.4)
+        )
+        view_ec.add(earth)
+
+        # Whole system
+        view = canvas.central_widget.add_view()
+        view.camera = scene.cameras.PanZoomCamera(aspect=1)
+        view.camera.set_range(
+            x=(-1.2*AU, 1.2*AU),
+            y=(-1.2*AU, 1.2*AU)
+        )
+
+        # Scatter visual
+        markers = visuals.Markers()
+        markers.set_data(
+            r_np[:, :3],
+            face_color=colors,
+            size=sizes
+        )
+        view.add(markers)
+
+        # ---- and visualisation : part 2 ----
+        # Animation timer
+        def update(event):
+            r_new = next(sim)
+            r_np = np.asarray(r_new)
+
+            markers.set_data(
+                r_np[:, :3],
+                face_color=colors,
+                size=sizes
+            )
+        
+            # Earth-centric 3D view
+            r_ec = r_np[earth_group] - r_np[idx_earth]
+            markers_ec.set_data(
+                r_ec,
+                face_color=[1, 1, 1, 1],
+                size=6
+            )
+
+        timer = app.Timer(interval=1/30)
+        timer.connect(update)
+        timer.start()
+        app.run()
+        
+#
+# NEW TREATMENTS
+#
+"""
+def accel_planet_planet_dev(rp, mp):
+    rr = rp[:,None,:] - rp[None,:,:]
+    dist2 = jnp.sum(rr*rr, axis=2) + eps**2
+    inv_r3 = dist2**(-1.5)
+    inv_r3 = inv_r3.at[jnp.diag_indices(rp.shape[0])].set(0.0)
+
+    return -G * jnp.sum(mp[None,:,None] * rr * inv_r3[:,:,None], axis=1)
+
+def accel_planet_satellite_dev(rs, rp, mp):
+    rr = rs[:,None,:] - rp[None,:,:]      # (Ns, Np, 3)
+    dist2 = jnp.sum(rr*rr, axis=2) + eps**2
+    inv_r3 = dist2**(-1.5)
+
+    return -G * jnp.sum(mp[None,:,None] * rr * inv_r3[:,:,None], axis=1)
+
+a = jnp.zeros_like(r)
+a = a.at[idx_planet].set(a_planets)
+a = a.at[idx_satellite].set(a_satellites)
+"""
+# END
+
+def newtonian_simulator_legacy( bAnimated = True ,
     tle_file_name	= None  ,
     Nsteps			= None ,
     dt				= 5e1   , # sec.s.
