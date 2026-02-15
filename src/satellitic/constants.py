@@ -68,29 +68,37 @@ constants_solar_system = { 'G' : 6.674 * 10**(-11)	, # m3/(kg s2)	# gravitationa
 		# Hubble constant (H0) 	 approximately 20 km/s per million light-years, or approximately 70 km/s per megaparsec
 	}
 
+def constants ( sel = None, constants_ = constants_solar_system  ) :
+    if sel is None :
+        return ( constants_ )
+    else :
+        return ( constants_[sel] )
 
-class Celestial( object ):
+AU      = constants('AU')
+d2s     = 24*60*60 # days to secs
+
+class Celestial( object ) :
     def __init__( self ) :
-        self.atmosphere_ = None
-        self.mass_ = None
-        self.radius_ = None
-        self.surface_temperature_ = None
-        self.composition_ = None
-        self.name_ = None
+        self.atmosphere_            = None
+        self.mass_                  = None
+        self.radius_                = None
+        self.surface_temperature_   = None
+        self.composition_           = None
+        self.name_                  = None
 #
 # TOPOLOGY INFORMATION
 class Starsystem ( object ) :
     def __init__( self , constants ) :
-        self.name_= None
-        self.components_ = None
-        self.celestial_bodies_ = None
-        self.celestial_types_  = None
-        self.celestial_names_  = None
-        self.indices_ = dict()
-        self.constants_ = constants
-        self.Ncurrent_ = None
-        self.t_ = None
-        self.s_ = None
+        self.name_              = None
+        self.components_        = None
+        self.celestial_bodies_  = None
+        self.celestial_types_   = None
+        self.celestial_names_   = None
+        self.indices_           = dict()
+        self.constants_         = constants
+        self.Ncurrent_          = None
+        self.t_                 = None
+        self.s_                 = None
         #
         # Phase space
         self.r_ = None
@@ -111,11 +119,15 @@ class Starsystem ( object ) :
             self.m_ = xp.asarray(self.m_)
             self.celestial_names_ = xp.asarray(self.celestial_names_)
 
-    def assign_from_dict( self , dictionary , xp=np ) :
+    def assign_from_dict( self , systemdictionary , xp=np ) :
         i = 0
-        for item in dictionary.items() :
+        bInitVelocities = False
+        vs_ = None
+        systemitems = list(systemdictionary.items())
+        for item in systemitems :
             if len(item[1]) != 5 :
-                print("Error in starsystem data format")
+                print( "Error in starsystem data format" )
+                print( "       Assumes : Distance, Velocity, Mass, Radius, Type" )
                 exit(1)
 
             if self.celestial_names_ is None :
@@ -126,48 +138,122 @@ class Starsystem ( object ) :
             i = i+1
 
             if self.r_ is None :
-                self.r_ = xp.asarray( [item[1][0],0,0] )
+                if len(item[1][0])==3 :
+                    rs_ = item[1][0]
+                else :
+                    rs_ = [item[1][0],0,0]
+                self.r_ = xp.asarray( rs_ )
             else :
-                self.r_ = xp.vstack([self.r_, [item[1][0],0,0] ])  
+                if len(item[1][0])==3 :
+                    rs_ = item[1][0]
+                else :
+                    rs_ = [item[1][0],0,0]
+                self.r_ = xp.vstack([self.r_, rs_ ])  
 
             if self.s_ is None :
-                self.s_ = xp.asarray([ item[1][1] ])
+                self.s_ = xp.asarray([ item[1][3] ])
             else :
-                self.s_ = xp.hstack( [self.s_, item[1][1]] )
+                self.s_ = xp.hstack( [self.s_, item[1][3]] )
 
-            if self.t_ is None :
-                self.t_ = xp.asarray([ item[1][2] ])
+            if not item[1][1] is None :
+                if len(item[1][1])==3 :
+                    vn_ = xp.asarray( item[1][1] )
+                else :
+                    vn_ = xp.asarray( [0,item[1][1],0] )
             else :
-                self.t_ = xp.hstack( [self.t_, item[1][2]] )
+                if bInitVelocities == False :
+                    print('A velocity value was missing will set all based on guess')
+                bInitVelocities = True
 
-            if item[1][2] > 0 :
-                v = item[1][0] * 2 * np.pi / item[1][2]
-            else :
-                v = 0
-
-            if self.v_ is None :
-                self.v_ = xp.asarray( [0,v,0] )
-            else :
-                self.v_ = xp.vstack([self.v_, [0,v,0] ]) 
+            if not bInitVelocities :
+                if vs_ is None :
+                    vs_ = xp.asarray( vn_ )
+                else :
+                    vs_ = xp.vstack([ vs_ , vn_ ]) 
 
             if self.m_ is None :
-                self.m_ = xp.asarray([ item[1][3] ])
+                self.m_ = xp.asarray([ item[1][2] ])
             else :
-                self.m_ = xp.hstack( [self.m_, item[1][3]] )
+                self.m_ = xp.hstack( [self.m_, item[1][2]] )
 
             if self.celestial_types_ is None :
                 self.celestial_types_ = [ item[1][4] ]
             else :
                 self.celestial_types_ .append( item[1][4] )
-            
             self.Ncurrent_ = len(self.m_)
-            self.make_arrays(xp)
+        
+        if bInitVelocities :
+            print('Intial velocities not supplied, setting with orbit guess')
+            self.guess_initial_velocities( systemitems ,xp=xp )
+        else :
+            self.v_ = vs_
+        self.make_arrays(xp)
+
+    def guess_initial_velocities(self, items, xp=np):
+        N = len(items)
+        v = np.zeros((N, 3))
+
+        # Identify Sun
+        idx_sun = None
+        Nstars = 0
+        for i, obi in enumerate(items):
+            if obi[1][4] == celestial_types['Star']:
+                idx_sun = i
+                Nstars+=1
+        if Nstars != 1 :
+            print(f'Guess not taking {Nstars} into account (assumes 1)')
+        M_sun = items[idx_sun][1][2]
+
+        # First pass: planets orbit Sun
+        for i, obi in enumerate(items):
+            r = obi[1][0]
+            m = obi[1][2]
+            typ = obi[1][4]
+            if typ == celestial_types['Star']:
+                continue
+            if typ == celestial_types['Planet']:
+                v_mag = np.sqrt(G * M_sun / r)
+                v[i,1] = v_mag
+
+        # Second pass: Moons orbiting Planets
+        for i, obi in enumerate(items):
+            typ = obi[1][4]
+            if typ != celestial_types['Moon']:
+                 continue
+
+            # find Planet with Moon
+            for j, obj in enumerate(items):
+                if obj[1][4] == celestial_types['Planet'] and obj[0] in obi[0]:
+                    idx_planet = j
+                    break
+
+            M_planet = items[idx_planet][1][2]
+            r_planet = items[idx_planet][1][0]
+            r_moon = obi[1][0]
+            d = r_moon - r_planet
+            v_rel = np.sqrt(G * M_planet / d)
+
+            # Moon velocity = Earth's velocity + relative orbital velocity
+            v[i,1] = v[idx_planet,1] + v_rel
+
+        # Barycentric correction (important)
+        total_momentum = np.sum(
+            [items[i][1][2] * v[i] for i in range(N)],
+            axis=0
+        )
+        total_mass = sum(items[i][1][2] for i in range(N))
+        v -= total_momentum / total_mass
+
+        self.v_ = xp.asarray(v)
 
     def create_name_index(self,name):
         if self.celestial_names_ is None :
             print('error: must specify celestial_names_')
             return
-        idx_ = np.where(self.celestial_names_==planet)[0][0]
+        idx_ = np.where(self.celestial_names_==name)[0]
+        if not len(idx_) > 0 :
+            print('Error:', name ,'not in names' , idx_ );
+            exit(1)
         if self.indices_ is None :
             self.indices_ = dict()                 
             self.indices_[name] = idx_ 
@@ -189,6 +275,10 @@ class Starsystem ( object ) :
             if idx_ is None :
                 idx_ = self.create_name_index( name )
             return self.r_[idx_], self.v_[idx_], self.m_[idx_]
+
+    def apply_barycentric_motion_correction(self) :
+        P = np.sum(self.m_[:,None] * self.v_, axis=0)
+        self.v_ -= P / np.sum(self.m_)
 
     def phase_state(self):
         return self.r_, self.v_, self.m_, self.celestial_types_, self.celestial_names_
@@ -269,7 +359,7 @@ class TLESatellites ( object ) :
         if self.planet_ is None :
             self.planet_ = name
         elif not self.planet_ == name :
-            print ( 'error: planet missmatch', planet, self.planet_ )
+            print ( 'error: planet missmatch', name, self.planet_ )
         
     def set_tle(self,tle_file_name):
         self.tle_file_name_ = tle_file_name
@@ -296,16 +386,10 @@ class TLESatellites ( object ) :
             Nsat			= len(self.m_)
             idx_leo			= np.array(range( Ncurrent, Ncurrent+Nsat ))
             return idx_leo
-
-class Constellation ( object ) :
-    def __init__( self  ) :
-        self.components_ = None
-
-
 AU = universal_constants['AU']
 d2s = 24*60*60 # days to secs
 solarsystem_notes = """https://www.jpl.nasa.gov/_edu/pdfs/scaless_reference.pdf"""
-solarsystem = { # Distance, Radius, revolution time, mass, type
+solarsystem_legacy = { # Distance, Radius, revolution time, mass, type
 'Sun'      : [0        , 1391400e3*0.5, 0 , 1.989*10**30 , celestial_types['Star'] ] ,
 'Mercury'  : [0.39*AU  , 4879e3*0.5   , 87.97 *d2s , 3.285e23 , celestial_types['Planet'] ] ,
 'Venus'    : [0.72*AU  , 12104e3*0.5  , 224.7 *d2s , 4.867e24 , celestial_types['Planet'] ] ,
@@ -316,6 +400,54 @@ solarsystem = { # Distance, Radius, revolution time, mass, type
 'Saturn'   : [9.54*AU  , 120536e3*0.5 , 10756 *d2s , 5.683e26 , celestial_types['Planet'] ] ,
 'Uranus'   : [19.2*AU  , 51118e3*0.5  , 30687 *d2s , 8.681e25 , celestial_types['Planet'] ] ,
 'Neptune'  : [30.06*AU , 49528e3*0.5  , 60190 *d2s , 1.024e26 , celestial_types['Planet'] ] }
+
+solarsystem = { 
+# Distance, Velocity, Mass, Radius, Type
+'Sun'      : [0           , None, 1.989e30, 1391400e3*0.5 , celestial_types['Star']   ] ,
+'Mercury'  : [0.39*AU     , None, 3.285e23,    4879e3*0.5 , celestial_types['Planet'] ] ,
+'Venus'    : [0.72*AU     , None, 4.867e24,   12104e3*0.5 , celestial_types['Planet'] ] ,
+'Earth'    : [1.0 *AU     , None, 5.972e24,   12756e3*0.5 , celestial_types['Planet'] ] ,
+'EarthMoon': [149982269700, None, 7.346e22,   3474e3*0.5  , celestial_types['Moon']   ] ,
+'Mars'     : [1.52*AU     , None, 6.390e23,   6792e3*0.5  , celestial_types['Planet'] ] ,
+'Jupiter'  : [5.20*AU     , None, 1.898e27, 142984e3*0.5  , celestial_types['Planet'] ] ,
+'Saturn'   : [9.54*AU     , None, 5.683e26, 120536e3*0.5  , celestial_types['Planet'] ] ,
+'Uranus'   : [19.2*AU     , None, 8.681e25,  51118e3*0.5  , celestial_types['Planet'] ] ,
+'Neptune'  : [30.06*AU    , None, 1.024e26,  49528e3*0.5  , celestial_types['Planet'] ] }
+#
+# AU and AU per DAY
+rsolar = np.array([ [0,0,0]  ,
+            [-0.25033210,-0.187321750,0],
+            [ 0.01747780,-0.662421103,0],
+            [-0.90919162, 0.35929260 ,0],
+            [ 1.20301883, 0.72707130 ,0],
+            [ 3.73307699, 3.05242482 ,0],
+            [ 6.16443306, 6.36677540 ,0],
+            [14.57964662,-12.36891079,0],
+            [16.95491140,-22.88713989,0] ])
+
+vsolar = np.array([ [0,0,0],
+            [-0.024388  ,-0.01850225,0],
+            [0.02008547 , 0.00083655,0],
+            [-0.00708584,-0.01455634,0],
+            [-0.007198  ,-0.015228  ,0],
+            [-0.00712445, 0.01166307,0],
+            [-0.00508654, 0.00549364,0],
+            [-0.00442682, 0.00339406,0],
+            [0.00264751 , 0.00248746,0],
+            [0.00256865 , 0.00168183,0] ])
+
+def build_run_system( solarsystem   ,
+        constants_solar_system      ,
+        satellite_topology = None ):
+    solsystem = Starsystem( constants_solar_system )
+    solsystem .assign_from_dict( solarsystem )
+    if not satellite_topology is None :
+        for item in satellite_topology.items() :
+            satellites = TLESatellites( tle_file_name = item[1] ,
+                                planet = item[0] )
+            satellites.add_planet_dependency( item[0] , *solsystem.phase_space(name = item[0])[:2] )
+            solsystem.add_particles( *satellites.phase_state() )
+    return solsystem
 
 if __name__=='__main__' :
     print ( 'HERE' )
