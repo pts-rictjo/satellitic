@@ -125,6 +125,25 @@ def geodetic_to_ecef_m(lat_rad: np.ndarray, lon_rad: np.ndarray, alt_m: np.ndarr
     z = (N * (1 - e2) + alt_m) * sinl
     return np.stack([x,y,z], axis=-1)
 
+def azel2phi(az, el, az0, el0 , bRad=False ):
+    """
+    Compute off-axis angle phi from azimuth and elevation angles.
+    Inputs in degrees. 
+    Works with scalars or numpy arrays.
+    """
+    d2r = np.pi / 180.0 if not bRad else 1.0
+    r2d = 1.0/d2r
+
+    azr  = az * d2r
+    elr  = el * d2r
+    az0r = az0 * d2r
+    el0r = el0 * d2r
+
+    phi = r2d * np.arccos(
+        np.sin(elr) * np.sin(el0r) +
+        np.cos(elr) * np.cos(el0r) * np.cos(azr - az0r)
+    )
+    return phi
 
 def save_flat_csv(flat_arr: np.ndarray, filename: str, header: str = "value"):
     np.savetxt(filename, flat_arr, delimiter=",", header=header, comments='')
