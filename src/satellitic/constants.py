@@ -137,14 +137,15 @@ class Starsystem ( object ) :
             self.indices_[item[0]] = i
             i = i+1
 
+            bChecked = len(item[1][0])==3 if isinstance(item[1][0], (str, list, tuple) ) else False
             if self.r_ is None :
-                if len(item[1][0])==3 :
+                if bChecked :
                     rs_ = item[1][0]
                 else :
                     rs_ = [item[1][0],0,0]
                 self.r_ = xp.asarray( rs_ )
             else :
-                if len(item[1][0])==3 :
+                if bChecked :
                     rs_ = item[1][0]
                 else :
                     rs_ = [item[1][0],0,0]
@@ -156,7 +157,8 @@ class Starsystem ( object ) :
                 self.s_ = xp.hstack( [self.s_, item[1][3]] )
 
             if not item[1][1] is None :
-                if len(item[1][1])==3 :
+                bChecked = len(item[1][1])==3 if isinstance(item[1][1], (str, list, tuple) ) else False
+                if bChecked :
                     vn_ = xp.asarray( item[1][1] )
                 else :
                     vn_ = xp.asarray( [0,item[1][1],0] )
