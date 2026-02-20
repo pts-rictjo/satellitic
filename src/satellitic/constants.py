@@ -14,6 +14,21 @@ lic_ = """
    limitations under the License.
 """
 import numpy as np
+import numpy as xp
+
+try :
+        import jax
+        jax.config.update("jax_enable_x64", True)
+        bUseJax = True
+except ImportError :
+        bUseJax = False
+except OSError:
+        bUseJax = False
+
+if bUseJax :
+    import jax
+    import jax.numpy as xp
+
 
 celestial_types = {
 'Star'      : 0 ,
@@ -388,6 +403,41 @@ class TLESatellites ( object ) :
             Nsat			= len(self.m_)
             idx_leo			= np.array(range( Ncurrent, Ncurrent+Nsat ))
             return idx_leo
+
+class InteractionLedger ( object ) :
+    def __init__( self , mass_rule = 'max' , mass_epsilon=1E-6 ) :
+        self.components_    = None
+        self.index_         = None
+        self.mass_epsilon_  = None
+        self.phase_space_   = None
+        self.m_dom_         = None
+    
+    def set_phase_space ( self , phase_space ) :
+        self.phase_space_ = phase_space
+    
+    def build_mass_partition(self, m, M_dom, epsilon = self.mass_epsilon_ ):
+        massive_mask = (m / M_dom) > epsilon
+        idx_massive = xp.where(massive_mask)[0]
+        idx_light   = xp.where(~massive_mask)[0]
+        return idx_massive, idx_light
+        
+    def set_dominant_mass_scale(self,M_dom=None):
+        self.m_dom_ = M_dom
+        if M_dom is None :
+            if mass_rule == 'max' :
+                self.m_dom_ = xp.max(self.phase_space_[2])
+            if mass_rule == 'mean' :
+                self.m_dom_ = xp.mean(self.phase_space_[2])
+            if 'mean' in mass_rule and 'std' in mass_rule :
+                f_ = 1
+                if '-' in mass_rule :
+                    f_ = -1
+                c_ = float( mass_rule.split('mean')[-1].split('std')[0].replace('+','').replace('-','').replace(' ','') )
+                self.m_dom_ = xp.mean(self.phase_space_[2]) + c_ * f_ * xp.std(self.phase_space_[2])
+            if mass_rule == 'min' :
+                self.m_dom_ = xp.min(self.phase_space_[2])
+
+
 AU = universal_constants['AU']
 d2s = 24*60*60 # days to secs
 solarsystem_notes = """https://www.jpl.nasa.gov/_edu/pdfs/scaless_reference.pdf"""
