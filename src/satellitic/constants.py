@@ -405,24 +405,49 @@ class TLESatellites ( object ) :
             return idx_leo
 
 class InteractionLedger ( object ) :
-    def __init__( self , mass_rule = 'max' , mass_epsilon=1E-6 ) :
+    def __init__( self , mass_rule = 'max' , mass_epsilon=1E-12 ) :
         self.components_    = None
         self.index_         = None
-        self.mass_epsilon_  = None
+        self.mass_epsilon_  = mass_epsilon
         self.phase_space_   = None
         self.m_dom_         = None
+        self.massive_mask_  = None
+        self.mass_rule_     = mass_rule
+        self.idx_massive_   = None
+        self.idx_light_     = None
     
     def set_phase_space ( self , phase_space ) :
         self.phase_space_ = phase_space
+        self.build_massive_mask()
+        self.set_mass_partition()
     
-    def build_mass_partition(self, m, M_dom, epsilon = self.mass_epsilon_ ):
-        massive_mask = (m / M_dom) > epsilon
-        idx_massive = xp.where(massive_mask)[0]
-        idx_light   = xp.where(~massive_mask)[0]
-        return idx_massive, idx_light
+    def build_massive_mask(self, m=None, M_dom=None, epsilon = None ):
+        if epsilon is None :
+            epsilon = self.mass_epsilon_
+        if M_dom is None :
+            M_dom   = self.m_dom_
+            if M_dom is None :
+                M_dom = self.set_dominant_mass_scale()
+                print ( M_dom )
+                print ( self.m_dom_)
+        if m is None :
+            m = self.phase_space_[2]
+        self.massive_mask_ = (m / M_dom) > epsilon
+    
+    def retrieve_massive_mask(self):
+        return ( self.massive_mask_ )
         
-    def set_dominant_mass_scale(self,M_dom=None):
-        self.m_dom_ = M_dom
+    def set_mass_partition( self ) :
+        massive_mask = self.retrieve_massive_mask()
+        self.idx_massive_  = xp.where( massive_mask)[0]
+        self.idx_light_    = xp.where(~massive_mask)[0]
+        
+    def get_mass_partition( self ) :
+        return self.idx_massive_, self.idx_light_
+        
+    def set_dominant_mass_scale(self,M_dom=None,mass_rule=None):
+        if mass_rule is None :
+            mass_rule = self.mass_rule_
         if M_dom is None :
             if mass_rule == 'max' :
                 self.m_dom_ = xp.max(self.phase_space_[2])
@@ -436,6 +461,9 @@ class InteractionLedger ( object ) :
                 self.m_dom_ = xp.mean(self.phase_space_[2]) + c_ * f_ * xp.std(self.phase_space_[2])
             if mass_rule == 'min' :
                 self.m_dom_ = xp.min(self.phase_space_[2])
+        else:
+            self.m_dom_ = M_dom
+        return ( self.m_dom_ )
 
 
 AU = universal_constants['AU']
