@@ -551,6 +551,71 @@ def build_run_system( solarsystem   ,
             solsystem.satellites_object.append( [item[0],satellites] )
     return solsystem
 
+
+def build_run_system_ledger( run_system , run_parameters , constants = constants ) :
+    # CREATION AND SETUP OF A LEDGER
+    if not ( run_parameters['mass_epsilon'] is None and run_parameters['mass_rule'] is None ) :
+        run_system.ledger = InteractionLedger( mass_rule = run_parameters['mass_rule'] ,
+                    mass_epsilon = run_parameters['mass_epsilon'] )
+    else :
+        run_system.ledger = InteractionLedger()
+    ledger = run_system.ledger
+    ledger .constants = constants
+    ledger .set_phase_space( run_system.phase_space() )
+    ledger .satellites_objects = [ [sobj[0],*sobj[1].get_index_pairs()] for sobj in run_system.satellites_object ]
+    ledger .convert_partition_types(xp)
+
+
+def build_params(run_system):
+    """
+    Create a jax friendly structure for parameters
+    """
+    ledger = run_system.ledger
+    G = ledger.constants('G')
+
+    idx_massive, idx_light = ledger.get_mass_partition()
+
+    idx_massive = xp.asarray(idx_massive, dtype=jnp.int32)
+    idx_light   = xp.asarray(idx_light,   dtype=jnp.int32)
+
+    # ---- Build flat satellite structure ----
+    satellite_indices  = []
+    satellite_parent   = []
+    planet_indices     = []
+    planet_J2          = []
+    planet_R           = []
+    planet_MU          = []
+
+    for name, idx_planet, idx_satellites in ledger.satellites_objects:
+
+        planet_indices.append(idx_planet)
+
+        planet_J2.append(ledger.constants(name + '-J2'))
+        planet_R.append( ledger.constants(name + '-R'))
+        planet_MU.append(ledger.constants(name + '-MU'))
+
+        for sidx in idx_satellites:
+            satellite_indices.append(sidx)
+            satellite_parent.append(len(planet_indices)-1)
+
+    params = {
+        "G": xp.asarray(G),
+
+        "idx_massive": idx_massive,
+        "idx_light":   idx_light,
+
+        "satellite_indices": xp.asarray(satellite_indices, dtype=xp.int32),
+        "satellite_parent":  xp.asarray(satellite_parent,  dtype=xp.int32),
+
+        "planet_indices": xp.asarray(planet_indices, dtype=xp.int32),
+        "planet_J2": xp.asarray(planet_J2) ,
+        "planet_R":  xp.asarray(planet_R ) ,
+        "planet_MU": xp.asarray(planet_MU) ,
+    }
+
+    return params
+
+
 if __name__=='__main__' :
     print ( 'HERE' )
     solsystemet = Starsystem( constants_solar_system )
