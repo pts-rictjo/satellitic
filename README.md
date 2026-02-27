@@ -60,9 +60,21 @@ Note that the streaming 3D vispy visualisation cannot handle huge amounts of sat
 ```
 >>> from satellitic.simulation import newtonian_simulator
 ImportSuccess: HAS JAX IN ENVIRONMENT
->>> newtonian_simulator(bAnimated=True, tle_file_name='data/local_small_tle.txt')
+>>> newtonian_simulator( run_parameters  = { 'dt':5e1,
+            'Nsteps':None ,
+            'steps_per_frame':100 ,
+            'mass_epsilon':None ,
+            'mass_rule':None } ,
+    satellite_topology  = {'Earth':'data/local_small_tle.txt'} )
 ```
 To write a trajectory file you can specify
 ```
->>> newtonian_simulator(bAnimated=False, tle_file_name='data/local_small_tle.txt' , Nsteps=10000 )
+>>> newtonian_simulator( run_parameters  = { 'dt':5e1,
+            'Nsteps':None ,
+            'steps_per_frame':100 ,
+            'mass_epsilon':None ,
+            'mass_rule':None } ,
+    satellite_topology  = {'Earth':'data/local_small_tle.txt'} ,
+    bAnimated = True , bWriteTrajectory = True,
+    trajectory_filename = "trajectory.trj", bVerbose = False )
 ```
