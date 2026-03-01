@@ -33,9 +33,7 @@ def excepthook(type, value, tb):
     traceback.print_exception(type, value, tb)
 sys.excepthook = excepthook
 
-# nix-shell -p {python313Packages.numpy,python313Packages.matplotlib,python313Packages.jax,python313Packages.sgp4,python313Packages.vispy,python313Packages.pyqt5,libsForQt5.qtbase}
-
-bUseJax = True
+bUseJax = False
 try :
         import jax
         jax.config.update("jax_enable_x64", True)
@@ -46,40 +44,10 @@ except ImportError :
 except OSError:
         print ( "OSError:","JAX: WILL NOT USE IT")
 
-
 if bUseJax:
     import jax.numpy as xp
 else:
     import numpy as xp
-
-"""
-class Starsystem ( object ) :
-    def __init__( self , constants ) :
-        self.components_ = None
-        self.celestial_bodies_ = None
-        self.celestial_types_ = None
-        self.celestial_names_ = None
-        self.constants_ = constants
-
-    def planets( self ) :
-        if not self.celestial_types_ is None :
-            plnt_idx = np.where( self.celestial_types_ == 'Planet' )
-            return self.celestial_names_[plnt_idx],plnt_idx
-
-    def constants( self , sel = None ) :
-        if sel is None :
-            return ( self.constants_ )
-        else :
-            return ( self.constants_[sel] )
-
-class Celestial( object ):
-    def __init__( self ) :
-        self.atmosphere_ = None
-        self.mass_ = None
-        self.radius_ = None
-        self.surface_temperature_ = None
-        self.composition_ = None
-"""
 
 def constants( sel = None ) :
     if sel is None :
@@ -90,103 +58,8 @@ def constants( sel = None ) :
 def backend_array(x, xp):
     return xp.asarray(x)
 
-def leapfrog( dt , r , v , F, m ) :
-    # LEGACY
-    E = m * np.sum(v**2) * 0.5
-    v = v + dt * F / m
-    r = r + dt * v
-    E = 0.5* ( E + m * np.sum(v**2) * 0.5 )
-    return ( r, v, F )
 
-def accel_direct( r , m ):
-    G = constants('G')
-    rr = vdist(r)
-    dist = np.linalg.norm(rr, axis=2)
-    np.fill_diagonal(dist, np.inf)
-    return -G * np.sum(
-        m[None,:,None] * rr / dist[:,:,None]**3,
-        axis = 1
-    )
-
-# softening factor, setting it once
-# soft smoothing for numerical stability
-# smallest physical scale that does not
-# need to be resolved. local overrides present
-# the global value is overriden for tle satellites
-# and asteriods/comets
-eps_ = 1e4  # meters
-
-if bUseJax :
-    G_ = constants('G')
-    import jax.numpy as jnp
-    @jax.jit
-    def accel_jax(r, m):
-        N       = r.shape[0]
-        mask    = 1.0 - jnp.eye(N, dtype=r.dtype)
-        G       = G_
-        rr      = r[:,None,:] - r[None,:,:]
-        dist2   = jnp.sum(rr*rr, axis=2) + eps_*eps_ # soft smoothing
-        inv_r3 = jnp.where(
-            dist2 > 0,
-            dist2**(-1.5),
-            0.0
-        ) * mask
-        return ( -G * jnp.sum(
-                m[None,:,None] * rr * inv_r3[:,:,None],
-                axis=1 )  
-            )
-
-    J2	    = constants('J2')
-    RE	    = constants('RE')
-    MU_E	= constants('MU_E')
-
-    # @jax.jit
-    def accel_j2(r_rel):
-        eps_ = 50
-        """
-        r_rel: (Nleo, 3) position relative to Earth center
-        """
-        x, y, z = r_rel[:,0], r_rel[:,1], r_rel[:,2]
-
-        r2 = x*x + y*y + z*z + eps_*eps_
-        r  = jnp.sqrt(r2)
-
-        z2_r2 = (z*z) / r2
-        factor = 1.5 * J2 * MU_E * RE*RE / r**5
-
-        ax = factor * x * (5*z2_r2 - 1)
-        ay = factor * y * (5*z2_r2 - 1)
-        az = factor * z * (5*z2_r2 - 3)
-
-        return jnp.stack([ax, ay, az], axis=1)
-
-    @jax.jit
-    def total_accel(r, m, idx_earth, idx_leo):
-        a		= accel_jax(r, m)		# Newtonian accelerations
-        if idx_earth is None or idx_leo is None :
-            return a
-        rE		= r[idx_earth]
-        r_rel	= r[idx_leo] - rE
-        a_j2	= accel_j2(r_rel)		# Adding in J2 corrections for LEO objects
-        a		= a.at[idx_leo].add(a_j2)
-        return a
-
-def accel_soft( r , m , idx_earth=None, idx_leo=None ):
-    # with numerical softening    
-    G = constants('G')
-    rr = vdist(r)
-    dist = np.sqrt(np.sum(rr*rr, axis=2) + eps_*eps_)
-    np.fill_diagonal(dist, np.inf)
-    return -G * np.sum(
-        m[None,:,None] * rr / dist[:,:,None]**3,
-        axis=1
-    )
-#
-# choose one acceleration form
-accel = accel_soft
-if bUseJax :
-    accel = total_accel
-
+"""
 def vverlet_a(dt, r, v, a, m , idx_earth=None, idx_leo=None ):
     r1 = r + v*dt + 0.5*a*dt*dt
     a1 = accel(r1, m, idx_earth, idx_leo)
@@ -228,41 +101,13 @@ def energy(r, v, m):
     np.fill_diagonal(dist, np.inf)
     PE = -0.5 * constants('G') * np.sum(m[:,None]*m[None,:] / dist)
     return KE + PE, KE, PE
+"""
 
-def add_particles(r, v, m, r_new, v_new, m_new):
-    r = np.vstack([r, r_new])
-    v = np.vstack([v, v_new])
-    m = np.concatenate([m, m_new])
-    return r, v, m
 
-def classify_earth_satellites(r, idx_earth, R_max=1e8):
-    # Determine J2 addition for satellites
-    # Rudimentary simple first entry logic for asteroids etc
-    r_rel = r - r[idx_earth]
-    dist = np.linalg.norm(r_rel, axis=1)
-    return dist < R_max
-
-def satellite_masses(N, default=1000.0):
-    return np.full(N, default)
-
-# BELOW ALSO NEEDS REFITTING
-def simulate(r, v, m, dt, Nsteps=None, steps_per_frame=10, idx_earth=None, idx_leo=None, system=None ):
-    a = accel( r, m, idx_earth, idx_leo )
-    if Nsteps is None :
-        while True:
-            for _ in range(steps_per_frame):
-                r, v, a = vverlet_a(dt, r, v, a, m, idx_earth, idx_leo)
-            yield r
-    else :
-        for step in range(Nsteps):
-            for _ in range(steps_per_frame):
-                r, v, a = vverlet_a(dt, r, v, a, m, idx_earth, idx_leo)
-            yield r
-
-### JAXED
 if bUseJax :
+
     @jax.jit
-    def accel_jaxed(r, m, params, xp=xp):
+    def accel(r, m, params):
 
         G  = params["G"]
     
@@ -353,40 +198,11 @@ if bUseJax :
         return a
 
     @jax.jit
-    def vverlet_jaxed( r, v, a, m, params, dt ):
+    def vverlet( r, v, a, m, params, dt ):
         r1 = r + v*dt + 0.5*a*dt*dt
-        a1 = accel_jaxed(r1, m, params)
+        a1 = accel(r1, m, params )
         v1 = v + 0.5*(a + a1)*dt
         return r1, v1, a1
-    #
-    # When not visualising. Not used
-    def integrate(r0, v0, m, params, dt, Nsteps):
-        a0 = accel_jaxed(r0, m, params)
-        def step(carry, _):
-            r, v, a = carry
-            r1, v1, a1 = vverlet_jaxed(r, v, a, m, params, dt)
-            return (r1, v1, a1), r1
-        (r_final, v_final, a_final), traj = jax.lax.scan(
-            step,
-            (r0, v0, a0),
-            None,
-            length=Nsteps
-        )
-        return traj
-
-    def simulate_jaxed( r, v, m, dt, Nsteps=None, steps_per_frame=10, params=None , bUseJax=bUseJax ):
-        if params is None :
-            print('Error: No runsystem or jaxed parameters')
-            exit(1)
-
-        step_count = 0
-        a = accel_jaxed( r, m, params )
-    
-        while True :
-            r, v, a = multi_step(r, v, a, m, params, dt,
-                    steps_per_frame = steps_per_frame )
-            step_count += steps_per_frame
-            yield r,step_count
 
     from functools import partial
     @partial(jax.jit, static_argnames=["steps_per_frame"])
@@ -394,12 +210,136 @@ if bUseJax :
 
         def body(carry, _):
             r, v, a = carry
-            r, v, a = vverlet_jaxed(r, v, a, m, params, dt)
+            r, v, a = vverlet(r, v, a, m, params, dt )
             return (r, v, a), None
 
         (r, v, a), _ = jax.lax.scan(body, (r, v, a), None, length = steps_per_frame )
         return r, v, a
-###
+
+
+def accel_np(r, m, params, xp=np):
+
+    G  = params["G"]
+
+    idx_massive = params["idx_massive"]
+    idx_light   = params["idx_light"]
+
+    satellite_indices = params["satellite_indices"]
+    satellite_parent  = params["satellite_parent"]
+
+    planet_indices = params["planet_indices"]
+    planet_J2 = params["planet_J2"]
+    planet_R  = params["planet_R"]
+    planet_MU = params["planet_MU"]
+
+    a = xp.zeros_like(r)
+
+    # -------------------------
+    # Massive ↔ Massive
+    # -------------------------
+    rM = r[idx_massive]
+    mM = m[idx_massive]
+
+    dr = rM[:, None, :] - rM[None, :, :]      # (N, N, 3)
+    r2 = np.sum(dr * dr, axis=2)              # (N, N)
+    np.fill_diagonal(r2, np.inf)
+
+    inv_r3 = xp.where(r2 > 0.0, r2**(-1.5), 0.0)   # (N, N)
+
+    aM = -G * xp.sum(
+         dr * inv_r3[:, :, None] * mM[None, :, None],
+         axis=1
+    )
+    a[idx_massive] = aM
+
+    # -------------------------
+    # Light due to Massive
+    # -------------------------
+    rL = r[idx_light]
+
+    dr = rL[:, None, :] - rM[None, :, :]
+    r2 = xp.sum(dr * dr, axis=2)
+
+    inv_r3 = xp.where(r2 > 0.0, r2**(-1.5), 0.0)
+
+    aL = -G * xp.sum(
+    mM[None, :, None] * dr * inv_r3[:, :, None],
+        axis=1
+    )
+    a[idx_light] = aL
+
+    # -------------------------
+    # Vectorized J2
+    # -------------------------
+    if satellite_indices.size > 0:
+
+        r_planets = r[planet_indices]             # (P,3)
+        r_sats    = r[satellite_indices]          # (Nsat,3)
+
+        r_parent = r_planets[satellite_parent]    # (Nsat,3)
+        r_rel    = r_sats - r_parent              # (Nsat,3)
+
+        x = r_rel[:, 0]
+        y = r_rel[:, 1]
+        z = r_rel[:, 2]
+
+        r2 = x*x + y*y + z*z
+        r  = np.sqrt(r2)
+        r5 = r2 * r2 * r
+
+        J2p = planet_J2[satellite_parent]
+        Rp  = planet_R[satellite_parent]
+        MUp = planet_MU[satellite_parent]
+
+        factor = 1.5 * J2p * MUp * Rp**2 / r5
+        z2_r2 = (z*z) / r2
+
+        ax = factor * x * (5*z2_r2 - 1)
+        ay = factor * y * (5*z2_r2 - 1)
+        az = factor * z * (5*z2_r2 - 3)
+
+        a_j2 = np.stack([ax, ay, az], axis=1)
+
+        a[satellite_indices] += a_j2
+
+    return a
+
+def vverlet_np( r, v, a, m, params, dt , xp = np ):
+    r1 = r + v*dt + 0.5*a*dt*dt
+    a1 = accel_np(r1, m, params, xp = xp )
+    v1 = v + 0.5*(a + a1)*dt
+    return r1, v1, a1
+
+def multi_step_np(r, v, a, m, params, dt, steps_per_frame, xp = np):
+    for _ in range(steps_per_frame):
+        r, v, a = vverlet_np(r, v, a, m, params, dt, xp = xp)
+    return r, v, a
+
+
+def simulate( r, v, m, dt, Nsteps=None, steps_per_frame=10, params=None , bUseJax=bUseJax ):
+
+    if params is None :
+        print('Error: No runsystem or jaxed parameters')
+        exit(1)
+
+    if bUseJax:
+        import jax.numpy as xp
+        accel_fn      = accel
+        multi_step_fn = multi_step
+    else :
+        import numpy as xp
+        accel_fn      = accel_np
+        multi_step_fn = multi_step_np
+
+    step_count = 0
+    a = accel_fn( r, m, params )
+
+    while True :
+        r, v, a = multi_step_fn(r, v, a, m, params, dt,
+            steps_per_frame = steps_per_frame )
+        step_count += steps_per_frame
+        yield r,step_count
+
 
 def newtonian_simulator( \
     run_parameters      = { 'dt':5e1,
@@ -410,8 +350,10 @@ def newtonian_simulator( \
     system_topology     = solarsystem ,
     system_constants    = constants_solar_system ,
     satellite_topology  = None ,
-    bAnimated = False , bWriteTrajectory = False,
-    trajectory_filename = "trajectory_default.trj", bVerbose = False , bUseJax=bUseJax ) :
+    bAnimated = False ,
+    visual_params = { 'visual_moon_scale':10 , 'size_sats':4 },
+    bWriteTrajectory = False, trajectory_filename = None ,
+    bVerbose = False , bUseJax=bUseJax ) :
     #
     if bUseJax :
         # USER OVERRIDE
@@ -423,13 +365,21 @@ def newtonian_simulator( \
     dt				= run_parameters['dt']   
     steps_per_frame = run_parameters['steps_per_frame']
     
+    # Get your steps in
     if not Nsteps is None :
         max_steps = Nsteps * steps_per_frame
-    if trajectory_filename is None :
-        bWriteTrajectory = False
-    else :
-        if not trajectory_filename == "trajectory_default.trj" :
-            bWriteTrajectory = True
+    #
+    # Setting output names if requested
+    if trajectory_filename is not None and bWriteTrajectory == False :
+        # The user supplied a name but did not set the flag
+        if not '.trj' in trajectory_filename :
+            trajectory_filename += '.trj'
+        bWriteTrajectory = True
+    #
+    if bWriteTrajectory == True and trajectory_filename is None :
+        # The user wants a timestamped name
+        import time
+        trajectory_filename = 'traj_' + time.asctime().replace(':','-').replace(' ','_') + '.trj'
 
     if bVerbose :
         print(f"""Starting simulation of {system_topology}
@@ -441,7 +391,7 @@ def newtonian_simulator( \
         constants_solar_system ,
         satellite_topology )
     run_system.apply_barycentric_motion_correction()
-    
+
     r, v, m, stypes , snames = run_system.phase_state()
     if bVerbose :
         print('Built initial system phase space')
@@ -457,35 +407,32 @@ def newtonian_simulator( \
     ledger = run_system.ledger
     ledger .constants = constants
     ledger .set_phase_space( run_system.phase_space() )
-    ledger .satellites_objects = [ [sobj[0],*sobj[1].get_index_pairs()] for sobj in run_system.satellites_object ]
+    if run_system.satellites_object is not None :
+        ledger .satellites_objects = [ [sobj[0],*sobj[1].get_index_pairs()] for sobj in run_system.satellites_object ]
     ledger .convert_partition_types(xp)
 
     const = constants()
-
     r   = backend_array(r, xp)
     v   = backend_array(v, xp)
     m   = backend_array(m, xp)
     #
     Ncurrent = len(m)
     print( 'Simulating celestial dynamics')
-    print( Ncurrent , 'body problem' )
-    Nsat = len( np.where( stypes == celestial_types['Satellit'])[0] )
+    print( Ncurrent , 'body problem ... ' )
+
+    Nsat = len( xp.where( stypes == celestial_types['Satellit'])[0] )
     if Nsat > 0 :
         print(f'Applied J2 corrections to {Nsat} LEO satellites')
 
-    if bUseJax:
-        from .constants import build_params
-        params = build_params(run_system)
+    from .constants import build_params
+    params = build_params(run_system)
+    if bVerbose:
         print ( 'Jax structs initialized')
         print ( 'Have', params )
-        
-        sim = simulate_jaxed( r, v, m, dt = dt,
-            Nsteps = Nsteps, steps_per_frame = steps_per_frame, params=params,
-            bUseJax = bUseJax )
-    else :
-        sim = simulate_dev( r, v, m, dt = dt,
+
+    sim = simulate( r, v, m, dt = dt,
             Nsteps = Nsteps, steps_per_frame = steps_per_frame,
-            run_system = run_system )
+            params=params, bUseJax = bUseJax )
 
     writer = None
     if bWriteTrajectory :
@@ -495,6 +442,7 @@ def newtonian_simulator( \
             particle_types=run_system.get_particle_types(),
             dt_frame=dt*steps_per_frame
         )
+        writer.write_cdp(run_system)
 
     if bAnimated :
 
@@ -506,7 +454,8 @@ def newtonian_simulator( \
                 if writer is not None :
                     writer.close()
             canvas.close()
-
+        #
+        # Niceness clash between sigint handlers ...
         signal.signal(signal.SIGINT, handle_sigint)
 
         #
@@ -515,10 +464,15 @@ def newtonian_simulator( \
         idx_sun     = run_system.find_indices_of('Sun')[0]
         idx_moon    = run_system.find_indices_of('EarthMoon')[0]
         idx_leo     = run_system.find_indices_of('LEO')
+
+        moon_scale_factor   = visual_params['visual_moon_scale']       # purely visual
+        size_sats           = visual_params['size_sats']
+
         #
         # ---- VisPy 2D projected solar system plot ----
         from vispy import app, scene
         from vispy.scene import visuals
+        from vispy.visuals.transforms.linear import MatrixTransform
 
         # ---- State data container for yields ----
         r_np = np.asarray(r)
@@ -530,6 +484,7 @@ def newtonian_simulator( \
         # special bodies
         sizes[idx_sun]   = 30
         sizes[idx_moon]  = 8
+        sizes[idx_leo]   = 2
 
         colors[idx_sun]   = np.array([1.0, 1.0, 0.0, 1.0])   # yellow
         colors[idx_earth] = np.array([0.0, 0.4, 1.0, 1.0])   # blue
@@ -546,45 +501,6 @@ def newtonian_simulator( \
             bgcolor='black',
             show=True
         )
-
-        # Earth-centric 3D canvas
-        canvas_ec = scene.SceneCanvas(
-            keys='interactive',
-            size=(400, 400),
-            bgcolor='black',
-            show=True,
-            title='Earth-centric view'
-        )
-        Re = constants('REarth')
-        R = constants('DMoon')  # ~ Moon distance
-        view_ec = canvas_ec.central_widget.add_view()
-        view_ec.camera = scene.cameras.TurntableCamera(
-            fov=90,
-            distance=Re*2.5
-        )
-        f_=1.05
-        view_ec.camera.set_range(
-            x=(-f_*R, f_*R),
-            y=(-f_*R, f_*R),
-            z=(-f_*R, f_*R)
-        )
-        earth_group = np.concatenate([[idx_moon], idx_leo])
-        r_ec = r_np[earth_group] - r_np[idx_earth]
-        markers_ec = visuals.Markers()
-        markers_ec.set_data(
-            r_ec,
-            size=6,
-            face_color=np.array([1, 1, 1, 1])
-        )
-        view_ec.add(markers_ec)
-
-        earth = visuals.Sphere(
-            radius=Re,
-            method='latitude',
-            color=(0.1, 0.3, 1.0, 0.4)
-        )
-        view_ec.add(earth)
-
         # Whole system
         view = canvas.central_widget.add_view()
         view.camera = scene.cameras.PanZoomCamera(aspect=1)
@@ -602,8 +518,60 @@ def newtonian_simulator( \
         )
         view.add(markers)
 
-        # ---- and visualisation : part 2 ----
-        # Animation timer     
+        # Earth-centric 3D canvas
+        canvas_ec = scene.SceneCanvas(
+            keys='interactive',
+            size=(400, 400),
+            bgcolor='black',
+            show=True,
+            title='Earth-centric view'
+        )
+        Re = constants('REarth')
+        R  = constants('DMoon')  # ~ Earth - Moon distance
+
+        view_ec = canvas_ec.central_widget.add_view()
+        viewdistance = Re*2.5
+        view_ec.camera = scene.cameras.TurntableCamera(
+            fov = 90,
+            distance = viewdistance
+        )
+        f_ = 1.05
+        view_ec.camera.set_range(
+            x=(-f_*R, f_*R),
+            y=(-f_*R, f_*R),
+            z=(-f_*R, f_*R)
+        )
+
+        earth = visuals.Sphere(
+            radius=Re,
+            method='latitude',
+            color=(0.1, 0.3, 1.0, 0.4)
+        )
+        view_ec.add(earth)
+
+        # Earth-centric positions
+        earth_pos = r_np[idx_earth]
+        r_moon = r_np[idx_moon] - earth_pos
+        r_sats = r_np[idx_leo]  - earth_pos
+
+        #
+        # --- Move Moon ---
+        moon = visuals.Sphere(
+            radius = constants("RMoon") * moon_scale_factor ,
+            method = 'latitude',
+            color = (0.8, 0.8, 0.8, 1.0)
+        )
+        moon.transform = MatrixTransform()
+        moon.transform.translate(r_moon)
+        view_ec.add(moon)
+
+        # --- Update satellites ---
+        sat_marker = visuals.Markers()
+        sat_marker.set_data(
+            pos  = r_sats,
+            size = size_sats,
+        )
+        view_ec.add(sat_marker)
         
         def update(event) :
 
@@ -611,6 +579,8 @@ def newtonian_simulator( \
             if bUseJax:
                 r_new.block_until_ready()
             r_np = np.asarray(r_new)
+            #
+            # System view
             markers.set_data(
                 r_np[:, :3],
                 face_color=colors,
@@ -618,11 +588,16 @@ def newtonian_simulator( \
             )
         
             # Earth-centric 3D view
-            r_ec = r_np[earth_group] - r_np[idx_earth]
-            markers_ec.set_data(
-                r_ec ,
-                face_color = [1, 1, 1, 1] ,
-                size = 6
+            earth_pos = r_np[idx_earth]
+            r_moon = r_np[idx_moon] - earth_pos
+            r_sats = r_np[idx_leo] - earth_pos
+
+            # --- Move Moon ---
+            moon.transform .reset()
+            moon.transform .translate(r_moon)
+
+            sat_marker.set_data(
+                pos=r_sats , size = size_sats
             )
             
             if bWriteTrajectory :
@@ -667,308 +642,6 @@ def newtonian_simulator( \
                 writer.close()
             print("Trajectory file closed cleanly.")
 
-
-def newtonian_simulator_legacy( bAnimated = True ,
-    tle_file_name	= None  ,
-    Nsteps			= None ,
-    dt				= 5e1   , # sec.s.
-    steps_per_frame = 100   ,
-    use_the_force	= False ,
-    trajectory_filename = "trajectory.trj", 
-    bLegacy         = False , bVerbose=False ) :
-    if bVerbose:
-        print( """ time step examples for stable orbits
-    Orbit	dt
-    LEO	1–10 s
-    MEO	30–60 s
-    GEO	300 s
-    """ )
-    if not Nsteps is None :
-        dt_frame = dt * steps_per_frame
-
-    if bAnimated :
-        from .visualise import choose_vispy_backend
-        bGUI = choose_vispy_backend()
-        if bGUI :
-            # ---- VisPy 2D projected solar system plot ----
-            from vispy import app, scene
-            from vispy.scene import visuals
-        else:
-            print('Nonfatal error: Could not connect to backend GUI (pyqt5 etc). Will not run pyvis')
-    
-    const			= constants()
-    #
-    # Solar system setup
-    G           = constants('G')
-    D           = constants('DMoon')
-    MSun        = constants('MSun')
-    ME          = constants('MEarth')
-    MM          = constants('MMoon')
-    AU          = constants('AU')
-    rE          = -MM / (ME + MM) * D
-    rM          =  ME / (ME + MM) * D
-    omega_EM    = np.sqrt( G * (ME + MM) / D**3) # EARTH-MOON angular velocity
-    vE          = omega_EM * abs(rE)
-    vM          = omega_EM * abs(rM)
-    vES         = np.sqrt(constants('G') * MSun / AU) # EARTH-SUN orbital velocity
-    #
-    # Create start vectors
-    r = [
-        [0.0, 0.0, 0.0],              # Sun
-        [AU + rE, 0.0, 0.0],          # Earth
-        [AU + rM, 0.0, 0.0]           # Moon
-    ]
-    v = [
-        [0.0, 0.0, 0.0],              # Sun
-        [0.0, vES + vE, 0.0],         # Earth
-        [0.0, vES + vM, 0.0]          # Moon
-    ]
-    m			= [MSun, ME, MM]
-    idx_sun     = 0
-    idx_earth	= 1
-    idx_moon    = 2
-    #
-    xp	= np
-    r   = backend_array(r, xp)
-    v   = backend_array(v, xp)
-    m   = backend_array(m, xp)
-    if bVerbose:
-        print('Collected : ' , r, v, m )
-    #
-    # Add random extra objects
-    Nextra = 0
-    if Nextra > 0 :
-        r_extra = AU * (1 + 0.2*np.random.randn(Nextra,3))
-        v_extra = np.cross(
-            r_extra,
-            np.array([0,0,1])
-        ) # project onto 2D plane
-        v_extra *= np.sqrt(constants('G')*MSun / np.linalg.norm(r_extra,axis=1))[:,None]
-        m_extra = np.full(Nextra, 1e12)  # small bodies
-
-        r = np.vstack([r, r_extra])
-        v = np.vstack([v, v_extra])
-        m = np.concatenate([m, m_extra])
-
-        print ( np.shape(v) , np.shape(r) , np.shape(m) )
-
-    Ncurrent = len(m)
-
-    if not tle_file_name is None :
-        from datetime import datetime
-        from .iotools import read_tles, tles_to_states
-        #
-        epoch = datetime(2025, 1, 1)
-        sats				= read_tles(tle_file_name)
-        r_sat, v_sat, names	= tles_to_states(sats, epoch)
-        r_sat += r[idx_earth]
-        v_sat += v[idx_earth]
-        m_sat			= satellite_masses(len(r_sat))
-        Nsat			= len(m_sat)
-        d_sat			= np.linalg.norm(r_sat,axis=1)
-        idx_leo			= np.array(range( Ncurrent, Ncurrent+Nsat ))
-        r, v, m = add_particles(r, v, m, r_sat, v_sat, m_sat)
-    else :
-        idx_leo = None
-
-    Ncurrent = len(m)
-    print('Simulating N-body Newtonian celestial dynamics')
-    print( Ncurrent , 'body problem')
-    print('Velocity verlet updates')
-    if not idx_leo is None :
-        print('Applying J2 corrections to LEO satellites')
-    particle_type = np.full(Ncurrent, TYPE_OTHER, dtype=np.uint8)
-    particle_type[idx_sun]   = TYPE_STAR
-    particle_type[idx_earth] = TYPE_PLANET
-    particle_type[idx_moon]  = TYPE_MOON
-    if not idx_leo is None :
-        particle_type[idx_leo]   = TYPE_SATELLITE
-    #
-    # Barycentric motion correction
-    P = np.sum(m[:,None] * v, axis=0)
-    v -= P / np.sum(m)
-    if bLegacy:
-        #
-        # BOOTSTRAP TESTING
-        rr	= vdist(r)
-        mm	= productpairs_z(m)
-        #
-        # Initial step values
-        F		= forceG(rr,mm)
-    a		= accel(r, m, idx_earth, idx_leo)
-    #
-    if bVerbose and bLegacy:
-        print ( np.shape((F.T/m).T) )
-        print ( 'accelerations:', (F.T/m).T , a )
-        print ( idx_earth, idx_leo )
-        #
-        # DO SINGLE UPDATE
-        print ( 'DAYS:' , Nsteps*dt/60/60/24 )
-
-    if bLegacy:
-        print('WARNING OLD CODE REMNANT')
-        if Nsteps is None :
-            print('Call simulator with Nsteps>0')
-            exit(1)
-        #
-        # LEGACY SIMULATOR
-        traj   = []
-        vverlet = vverlet_F if use_the_force else vverlet_a
-        F = F if use_the_force else a
-        for step in range(Nsteps):
-            r, v, F = vverlet( dt , r , v, F , m , mm )
-            traj.append([r,v,F])
-        print('Did a simulation output ' + 'forces' if use_the_force else 'accelerations' )
-
-        # LEGACY VISUALISATION
-        # choose a particle (Moon is 2)
-        iparticle = 2
-
-        import matplotlib.pyplot as plt
-        R = np.array([ t[0][iparticle] for t in traj ])
-        P = np.array([ t[0][1] for t in traj ])
-        print(R)
-
-        x = [ r[0] for r in R-P ]
-        y = [ r[1] for r in R-P ]
-        z = [ r[2] for r in R-P ]
-
-        fig, ax = plt.subplots(figsize=(6,6))
-        ax.set_aspect('equal')
-        ax.set_xlim(-1.2*AU, 1.2*AU)
-        ax.set_ylim(-1.2*AU, 1.2*AU)
-        ax.set_facecolor("black")
-
-        plt.plot( x, y, 'k' )
-        plt.plot( z, y, 'b' )
-        plt.plot( x, z, 'b' )
-        plt.show()
-
-    # ---- Initial data ----
-    r_np = np.asarray(r)
-    N = r_np.shape[0]
-    sizes = np.full(N, 2.0, dtype=np.float32)
-    colors = np.full((N, 4), [0.5, 0.5, 0.5, 1.0], dtype=np.float32)
-
-    if bAnimated and bGUI:
-        # special bodies
-        sizes[idx_sun]   = 20
-        sizes[idx_earth] = 16
-        sizes[idx_moon]  = 8
-
-        colors[idx_sun]   = [1.0, 1.0, 0.0, 1.0]   # yellow
-        colors[idx_earth] = [0.0, 0.4, 1.0, 1.0]   # blue
-        colors[idx_moon]  = [1.0, 1.0, 1.0, 1.0]   # white
-        
-        # Canvas & view
-        canvas = scene.SceneCanvas(
-            keys='interactive',
-            size=(800, 800),
-            bgcolor='black',
-            show=True
-        )
-        # Whole system
-        view = canvas.central_widget.add_view()
-        view.camera = scene.cameras.PanZoomCamera(aspect=1)
-        view.camera.set_range(
-            x=(-1.2*AU, 1.2*AU),
-            y=(-1.2*AU, 1.2*AU)
-        )
-
-        # Scatter visual
-        markers = visuals.Markers()
-        markers.set_data(
-            r_np[:, :3],
-            face_color=colors,
-            size=sizes
-        )
-        view.add(markers)
-		
-        if not idx_leo is None :
-            # Earth-centric 3D canvas
-            canvas_ec = scene.SceneCanvas(
-                keys='interactive',
-                size=(600, 600),
-                bgcolor='black',
-                show=True,
-                title='Earth-centric view'
-            )
-            Re = constants('REarth')
-            view_ec = canvas_ec.central_widget.add_view()
-            view_ec.camera = scene.cameras.TurntableCamera(
-                fov=45,
-                distance=Re*5
-            )
-            earth_group = np.concatenate([[idx_moon], idx_leo])
-            r_ec = r_np[earth_group] - r_np[idx_earth]
-            markers_ec = visuals.Markers()
-            markers_ec.set_data(
-                r_ec,
-                size=6,
-                face_color=[1, 1, 1, 1]
-            )
-            view_ec.add(markers_ec)
-
-            earth = visuals.Sphere(
-                radius=Re,
-                method='latitude',
-                color=(0.1, 0.3, 1.0, 0.4)
-            )
-            view_ec.add(earth)
-            R = constants('DMoon')  # ~ Moon distance
-            view_ec.camera.set_range(
-                x=(-R, R),
-                y=(-R, R),
-                z=(-R, R)
-            )
-
-    # Simulation generator
-    sim = simulate(
-        r, v, m,
-        dt=dt , Nsteps=Nsteps ,
-        steps_per_frame=steps_per_frame,
-        idx_earth=idx_earth,
-        idx_leo=idx_leo
-    )
-
-    if not Nsteps is None :
-        from .iotools import TrajectoryManager
-        writer = TrajectoryManager(
-            trajectory_filename,
-            particle_type=particle_type,
-            N_steps=Nsteps, dt_frame=dt_frame
-        )
-
-        for step in range(Nsteps):
-            r_new = next(sim)
-            writer.write_step(np.asarray(r_new))
-
-        writer.close()
-
-    if bAnimated and bGUI :
-        # Animation timer
-        def update(event):
-            r_new = next(sim)
-            r_np = np.asarray(r_new)
-
-            markers.set_data(
-                r_np[:, :3],
-                face_color=colors,
-                size=sizes
-            )
-            if not idx_leo is None :
-                # Earth-centric 3D view
-                r_ec = r_np[earth_group] - r_np[idx_earth]
-                markers_ec.set_data(
-                    r_ec,
-                    face_color=[1, 1, 1, 1],
-                    size=6
-                )
-
-        timer = app.Timer(interval=1/30)
-        timer.connect(update)
-        timer.start()
-        app.run()
 
 # -----------------------
 # Top-level pipeline

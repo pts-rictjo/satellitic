@@ -31,12 +31,14 @@ TYPE_OTHER      = celestial_types['Other']
 
 class TrajectoryManager:
     def __init__(self, filename, particle_types, dt_frame):
+        import pickle as pwrite
+        self.pwrite_    = pwrite
+        self.filename_  = filename
+        self.f          = open( self.filename_ , "wb" )
 
-        self.f = open(filename, "wb")
-
-        particle_type = np.asarray(particle_types, dtype=np.uint8)
-        self.N = particle_type.size
-        self.dt_frame = dt_frame
+        particle_type   = np.asarray(particle_types, dtype=np.uint8)
+        self.N          = particle_type.size
+        self.dt_frame   = dt_frame
         self.N_steps_written = 0
 
         # ---- header ----
@@ -44,13 +46,25 @@ class TrajectoryManager:
 
         # Placeholder N_steps = 0
         self.f.write(struct.pack("iid", self.N, 0, dt_frame))
-
         self.f.write(particle_type.tobytes())
 
     def write_step(self, r_np):
         r32 = np.asarray(r_np, dtype=np.float32, order="C")
         self.f.write(r32.tobytes())
         self.N_steps_written += 1
+
+    def write_cdp( self, run_system ) :
+        # Output some celestial dynamics parameters
+        # and initial state
+        # Needs a read/load function later...
+        # state_var = pickle.load(f)
+        #
+        ofile = open(self.filename_.replace('.trj','.cdp'),'wb')
+        self.pwrite_.dump( run_system.phase_state(), ofile )
+        if run_system.satellites_object is not None :
+            self.pwrite_.dump( run_system.ledger.satellites_objects , file=ofile )
+        ofile.close()
+
 
     def close(self):
         # Seek back and update N_steps
