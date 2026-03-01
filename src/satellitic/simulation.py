@@ -217,7 +217,7 @@ if bUseJax :
         return r, v, a
 
 
-def accel_np(r, m, params, xp=np):
+def accel_np(r, m, params):
 
     G  = params["G"]
 
@@ -232,7 +232,7 @@ def accel_np(r, m, params, xp=np):
     planet_R  = params["planet_R"]
     planet_MU = params["planet_MU"]
 
-    a = xp.zeros_like(r)
+    a = np.zeros_like(r)
 
     # -------------------------
     # Massive ↔ Massive
@@ -240,15 +240,18 @@ def accel_np(r, m, params, xp=np):
     rM = r[idx_massive]
     mM = m[idx_massive]
 
-    dr = rM[:, None, :] - rM[None, :, :]      # (N, N, 3)
-    r2 = np.sum(dr * dr, axis=2)              # (N, N)
+    dr = rM[:, None, :] - rM[None, :, :]
+    r2 = np.einsum('ijk,ijk->ij', dr, dr)
     np.fill_diagonal(r2, np.inf)
 
-    inv_r3 = xp.where(r2 > 0.0, r2**(-1.5), 0.0)   # (N, N)
+    inv_r = 1.0 / np.sqrt(r2)
+    inv_r3 = inv_r * inv_r * inv_r
 
-    aM = -G * xp.sum(
-         dr * inv_r3[:, :, None] * mM[None, :, None],
-         axis=1
+    aM = -G * np.einsum(
+        'ij,ijk,j->ik',
+        inv_r3,
+        dr,
+        mM
     )
     a[idx_massive] = aM
 
@@ -258,14 +261,13 @@ def accel_np(r, m, params, xp=np):
     rL = r[idx_light]
 
     dr = rL[:, None, :] - rM[None, :, :]
-    r2 = xp.sum(dr * dr, axis=2)
+    r2 = np.sum(dr * dr, axis=2)
+    inv_r = 1.0 / np.sqrt(r2)
+    inv_r3 = inv_r * inv_r * inv_r
 
-    inv_r3 = xp.where(r2 > 0.0, r2**(-1.5), 0.0)
-
-    aL = -G * xp.sum(
-    mM[None, :, None] * dr * inv_r3[:, :, None],
-        axis=1
-    )
+    tmp = dr * inv_r3[:, :, None]
+    tmp *= mM[None, :, None]
+    aL = -G * tmp.sum(axis=1)
     a[idx_light] = aL
 
     # -------------------------
@@ -285,34 +287,37 @@ def accel_np(r, m, params, xp=np):
 
         r2 = x*x + y*y + z*z
         r  = np.sqrt(r2)
-        r5 = r2 * r2 * r
+
+        inv_r = 1.0 / np.sqrt(r2)
+        inv_r5 = inv_r * inv_r * inv_r * inv_r * inv_r
 
         J2p = planet_J2[satellite_parent]
-        Rp  = planet_R[satellite_parent]
+        Rp  = planet_R [satellite_parent]
         MUp = planet_MU[satellite_parent]
 
-        factor = 1.5 * J2p * MUp * Rp**2 / r5
-        z2_r2 = (z*z) / r2
+        factor = 1.5 * J2p * MUp * Rp**2 * inv_r5
+        z2_r2 = (z*z) * inv_r * inv_r
 
         ax = factor * x * (5*z2_r2 - 1)
         ay = factor * y * (5*z2_r2 - 1)
         az = factor * z * (5*z2_r2 - 3)
 
-        a_j2 = np.stack([ax, ay, az], axis=1)
-
-        a[satellite_indices] += a_j2
+        a[satellite_indices, 0] += ax
+        a[satellite_indices, 1] += ay
+        a[satellite_indices, 2] += az
 
     return a
 
-def vverlet_np( r, v, a, m, params, dt , xp = np ):
+
+def vverlet_np( r, v, a, m, params, dt ):
     r1 = r + v*dt + 0.5*a*dt*dt
-    a1 = accel_np(r1, m, params, xp = xp )
+    a1 = accel_np( r1, m, params )
     v1 = v + 0.5*(a + a1)*dt
     return r1, v1, a1
 
-def multi_step_np(r, v, a, m, params, dt, steps_per_frame, xp = np):
+def multi_step_np(r, v, a, m, params, dt, steps_per_frame ):
     for _ in range(steps_per_frame):
-        r, v, a = vverlet_np(r, v, a, m, params, dt, xp = xp)
+        r, v, a = vverlet_np(r, v, a, m, params, dt )
     return r, v, a
 
 
@@ -330,6 +335,9 @@ def simulate( r, v, m, dt, Nsteps=None, steps_per_frame=10, params=None , bUseJa
         import numpy as xp
         accel_fn      = accel_np
         multi_step_fn = multi_step_np
+        r = np.ascontiguousarray(r)
+        v = np.ascontiguousarray(v)
+        m = np.ascontiguousarray(m)
 
     step_count = 0
     a = accel_fn( r, m, params )
