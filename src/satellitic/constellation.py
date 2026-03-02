@@ -175,6 +175,41 @@ def build_constellation_df( input:list ) -> pd.DataFrame :
       ]
     ) )
 
+def create_tle_from_system_selection( selection , systems_information = systems_5Cs142dE_20241108 ,
+					system_names = recommended_system_names , bVerbose=False ,
+					output_file = None ) :
+
+    study_systems	= [ systems_information[sys]	for sys in selection ]
+
+    constellation_df = build_constellation_df ( repack_input( selection , study_systems ) )
+
+    if bVerbose:
+        print ( constellation_df )
+        print ( "Generating TLEs..." )
+
+    tle_df = generate_constellation_tles(
+        constellation_df ,
+        satnum_start = 10000
+    )
+
+    print ( f"Generated {len(tle_df)} satellites\n" )
+
+    # Swap in system names
+    tle_df['system'] = [  v + '-' + system_names[v] for v in tle_df.loc[:,'system'].values ]
+
+    if bVerbose :
+        print ( tle_df )
+
+    # Optional: write to file
+    if output_file is not None :
+        with open(output_file, "w") as f:
+            for _, row in tle_df.iterrows():
+                f.write(row.tle1 + "\n")
+                f.write(row.tle2 + "\n")
+
+    return tle_df
+
+
 recommended_system_names = {'H' : 'Oneweb', 'A' : 'SpaceX', 'B' : 'Kuiper', 'D' : 'Telesat', 'I' : 'SES Astra LEO' }
 systems_5Cs142dE_20241108 = {'A':[[525,28,120,53,0],
 		[530,28,120,43,0],
@@ -200,6 +235,15 @@ systems_5Cs142dE_20241108 = {'A':[[525,28,120,53,0],
 }
 
 if __name__ == '__main__' :
+    # Example one : To write TLE definitions, using default paramaters and a selection. 
+	# Note that the required parameters systems_information and system_names are set to
+	# defaults systems_5Cs142dE_20241108 and recommended_system_names but can be any 
+	# viable dictionaries. 
+	# Issue the below commands to generate a default tle file:
+    selection		= ['A','B','D']
+    tle_df = create_tle_from_system_selection( selection , output_file = "constellation_systems-" + '-'.join(selection) + ".tle" )
+
+	# example two : Here the functionallity is detailed in greater depth
     selection = ['A','B','I'] # ( A and M are variations of the same system )
     study_systems = [ systems_5Cs142dE_20241108[sys] for sys in selection ]
     print ( f'Will attempt to study systems {", ".join(selection)} corresponding to {", ".join([recommended_system_names[s] for s in selection])} respectively' )
