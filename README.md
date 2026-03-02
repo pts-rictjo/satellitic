@@ -78,3 +78,13 @@ To write a trajectory file you can specify
     bAnimated = True , bWriteTrajectory = True,
     trajectory_filename = "trajectory.trj", bVerbose = False )
 ```
+
+# Creating a TLE file from default system definitions
+In order to create TLE definitions for systems any viable dictionary can by supplied to the below defined function. The dictionaries of the systems as defined in the [ITU defintions](https://www.itu.int/md/R23-WP5C-C-0142/en) are already included as defaults:
+```
+from satellitic.constellation import create_tle_from_system_selection
+if __name__=='__main__':
+    selection		= ['A','B','D']
+    tle_df = create_tle_from_system_selection( selection , output_file = "constellation_systems-" + '-'.join(selection) + ".tle" )
+```
+
