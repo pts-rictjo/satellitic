@@ -15,6 +15,8 @@ lic_ = """
 """
 import numpy as np
 import numpy as xp
+from .special import strings_find
+#strings_find = np.strings.find
 
 try :
         import jax
@@ -330,7 +332,7 @@ class Starsystem ( object ) :
             return ( self.constants_[sel] )
 
     def find_indices_of( self, partial_name ):
-        return ( np.where( np.strings.find( self.celestial_names_ , partial_name ) == 0 )[0] )
+        return ( np.where( strings_find( self.celestial_names_ , partial_name ) == 0 )[0] )
 
 
 class TLESatellites ( object ) :

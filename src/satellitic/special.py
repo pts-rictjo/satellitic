@@ -13,6 +13,7 @@ lic_ = """
    See the License for the specific language governing permissions and
    limitations under the License.
 """
+import numpy as np
 def strings_find(a, sub, start=0, end=None):
     """
     En ren Python-version av numpy.strings.find.
@@ -26,7 +27,7 @@ def strings_find(a, sub, start=0, end=None):
         # Python slice hanteras direkt av str.find
         idx = str(s).find(sub, start, end)
         results.append(idx)
-    return results
+    return np.array(results)
 
 if __name__ == '__main__':
     a = ["hello world", "test string", "abcabc", "no match"]
