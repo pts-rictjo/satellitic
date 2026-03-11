@@ -103,6 +103,15 @@ def energy(r, v, m):
     return KE + PE, KE, PE
 """
 
+def forceElasticCollision ( separation , Rdim , a=1 , p=6, eps=0.01 ) :
+	"""
+	toy model for relatively hard collision potential with numerical smoothening
+	"""
+	r = sep/R
+	rd = np.linalg.norm(r)
+	E = a * np.exp( -1*rd ) * ( eps + rd )**(-1*p)
+	F = -1 * r * a * np.exp( -rd ) * ( r + eps )**(p-1) * (rd + eps + p) 
+	return(F)
 
 if bUseJax :
 
