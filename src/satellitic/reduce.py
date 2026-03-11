@@ -346,3 +346,7 @@ def run_test_ensemble():
 if __name__ == "__main__":
     run_test_ensemble()
     run_test()
+
+    # alternative
+    # stacked = jnp.concatenate(projected, axis=1)
+    # Y_2D = PCA_reduce(stacked, 2)
