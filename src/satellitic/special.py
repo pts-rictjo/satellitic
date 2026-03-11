@@ -16,7 +16,6 @@ lic_ = """
 bUseJax = False
 try :
         import jax
-        jax.config.update("jax_enable_x64", True)
         bUseJax = True
 except ImportError :
         bUseJax = False
@@ -41,7 +40,13 @@ def strings_find(a, sub, start=0, end=None):
     return np.array(results)
 
 if bUseJax :
-   @jax.jit
+    import jax
+    import jax.numpy as jnp
+    from jax import lax
+    #
+    # ============================================================
+    # Morton curve methods
+    @jax.jit
     def _split_by_3bits(x):
         x &= 0x1fffff
         x = (x | (x << 32)) & 0x1f00000000ffff
@@ -64,7 +69,6 @@ if bUseJax :
         cells = cells - jnp.min(cells, axis=0)
         return cells
 
-
     @jax.jit
     def compute_morton_codes(r, cell_size):
         cells = compute_cells(r, cell_size)
@@ -73,6 +77,70 @@ if bUseJax :
             cells[:,1].astype(jnp.uint64),
             cells[:,2].astype(jnp.uint64)
         )
+        return cells, codes
+    #
+    # ============================================================
+    # Hilbert curve methods
+    @jax.jit
+    def hilbert3D(x, y, z, bits=21):
+        """
+    Fast 3D Hilbert index.
+
+    x,y,z : uint64 coordinates
+    bits  : number of bits per dimension (<=21)
+
+    returns uint64 Hilbert index
+        """
+        x = x.astype(jnp.uint64)
+        y = y.astype(jnp.uint64)
+        z = z.astype(jnp.uint64)
+        mask = jnp.uint64(1) << (bits - 1)
+
+        def body(i, state):
+            x, y, z, h, mask = state
+            xi = (x & mask) > 0
+            yi = (y & mask) > 0
+            zi = (z & mask) > 0
+
+            digit = (
+                (xi.astype(jnp.uint64) << 2) |
+                (yi.astype(jnp.uint64) << 1) |
+                zi.astype(jnp.uint64)
+            )
+            h = (h << 3) | digit
+
+            # rotation / reflection step
+            swap_xy = (~zi) & (xi ^ yi)
+            swap_xz = (~yi) & (xi ^ zi)
+
+            x2 = jnp.where(swap_xy, y, x)
+            y2 = jnp.where(swap_xy, x, y)
+            x3 = jnp.where(swap_xz, z, x2)
+            z2 = jnp.where(swap_xz, x2, z)
+            mask = mask >> 1
+            return (x3, y2, z2, h, mask)
+
+        x, y, z, h, mask = lax.fori_loop(
+            0,
+            bits,
+            body,
+            (x, y, z, jnp.uint64(0), mask)
+        )
+        return h
+   
+    @jax.jit
+    def hilbert3D_vec(x, y, z, bits=21):
+        return jax.vmap(lambda a, b, c: hilbert3D(a, b, c, bits))(x, y, z)
+
+    @jax.jit
+    def compute_hilbert_codes(r, cell_size, bits=21):
+        cells = jnp.floor(r / cell_size).astype(jnp.int32)
+        # shift so negatives work
+        cells = cells - jnp.min(cells, axis=0)
+        x = cells[:,0].astype(jnp.uint64)
+        y = cells[:,1].astype(jnp.uint64)
+        z = cells[:,2].astype(jnp.uint64)
+        codes = hilbert3D_vec(x, y, z, bits)
         return cells, codes
 
     # ============================================================
@@ -85,6 +153,7 @@ if bUseJax :
         unique, start = jnp.unique(codes_sorted, return_index=True)
         end = jnp.concatenate([start[1:], jnp.array([codes_sorted.shape[0]])])
         return order, codes_sorted, unique, start, end
+
 else :
     def _split_by_3bits(x):
         x &= 0x1fffff
@@ -124,7 +193,6 @@ else :
         unique, start = np.unique(codes_sorted, return_index=True)
         end = np.concatenate([start[1:], jnp.array([codes_sorted.shape[0]])])
         return order, codes_sorted, unique, start, end
-
 
 
 if __name__ == '__main__':
