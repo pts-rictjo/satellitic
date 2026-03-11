@@ -56,6 +56,35 @@ if bUseJax :
         return (_split_by_3bits(x) |
                (_split_by_3bits(y) << 1) |
                (_split_by_3bits(z) << 2))
+
+    @jax.jit
+    def compute_cells(r, cell_size):
+        cells = jnp.floor(r / cell_size).astype(jnp.int32)
+        # shift so negative coordinates work
+        cells = cells - jnp.min(cells, axis=0)
+        return cells
+
+
+    @jax.jit
+    def compute_morton_codes(r, cell_size):
+        cells = compute_cells(r, cell_size)
+        codes = morton3D(
+            cells[:,0].astype(jnp.uint64),
+            cells[:,1].astype(jnp.uint64),
+            cells[:,2].astype(jnp.uint64)
+        )
+        return cells, codes
+
+    # ============================================================
+    # Build cell start/end lookup
+    #
+    @jax.jit
+    def build_cell_table(codes):
+        order = jnp.argsort(codes)
+        codes_sorted = codes[order]
+        unique, start = jnp.unique(codes_sorted, return_index=True)
+        end = jnp.concatenate([start[1:], jnp.array([codes_sorted.shape[0]])])
+        return order, codes_sorted, unique, start, end
 else :
     def _split_by_3bits(x):
         x &= 0x1fffff
@@ -70,6 +99,33 @@ else :
         return (_split_by_3bits(x) |
                (_split_by_3bits(y) << 1) |
                (_split_by_3bits(z) << 2))
+
+    def compute_cells(r, cell_size):
+        cells = np.floor(r / cell_size).astype(jnp.int32)
+        # shift so negative coordinates work
+        cells = cells - np.min(cells, axis=0)
+        return cells
+
+    def compute_morton_codes(r, cell_size):
+        cells = compute_cells(r, cell_size)
+        codes = morton3D(
+            cells[:,0].astype(np.uint64),
+            cells[:,1].astype(np.uint64),
+            cells[:,2].astype(np.uint64)
+        )
+        return cells, codes
+
+    # ============================================================
+    # Build cell start/end lookup
+    #
+    def build_cell_table(codes):
+        order = np.argsort(codes)
+        codes_sorted = codes[order]
+        unique, start = np.unique(codes_sorted, return_index=True)
+        end = np.concatenate([start[1:], jnp.array([codes_sorted.shape[0]])])
+        return order, codes_sorted, unique, start, end
+
+
 
 if __name__ == '__main__':
     a = ["hello world", "test string", "abcabc", "no match"]
