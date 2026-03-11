@@ -178,19 +178,22 @@ def run_test():
         print("Matplotlib not available, skipping plot.")
 
 
-import pandas as pd
-
-def run_csv_test(filename="analytes.csv"):
-    # 1️⃣ Load CSV
+def run_csv_test(filename=None):
+    import pandas as pd
+    if filename is None :
+        run_test()
+        return
+    
+    # Load CSV
     df = pd.read_csv(filename,sep='\t').iloc[:,1:]
     print(f"Loaded CSV: {df.shape[0]} rows, {df.shape[1]} columns")
 
-    # 2️⃣ Keep only numeric columns
+    # Keep only numeric columns
     df_numeric = df.select_dtypes(include='number')
     X = jnp.array(df_numeric.values)
     print("Numeric data shape:", X.shape)
 
-    # 3️⃣ Run Hilbert-ensemble map
+    # Run Hilbert-ensemble map
     key = jax.random.PRNGKey(123)
     t0 = time.time()
     embedding = hilbert_ensemble_map(
@@ -206,7 +209,7 @@ def run_csv_test(filename="analytes.csv"):
     print("Embedding shape:", embedding.shape)
     print("Time:", t1 - t0, "seconds")
 
-    # 4️⃣ Optional: plot first 2 dims
+    # Optional: plot first 2 dims
     try:
         import matplotlib.pyplot as plt
         plt.figure(figsize=(6,6))
@@ -217,5 +220,4 @@ def run_csv_test(filename="analytes.csv"):
         print("Matplotlib not available, skipping plot.")
 
 if __name__ == "__main__":
-    run_csv_test("/opt/storage/data/genes/analytes.csv")
-    #run_test()
+    run_test()
