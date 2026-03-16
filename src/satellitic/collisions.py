@@ -218,6 +218,35 @@ def detect_collisions(r, v, radii, mass, order, neighbor_window=64):
     
     return collisions
 
+@jax.jit
+def detect_collisions_from_neighbors(r, v, radii, mass, neighbors):
+    """
+    Collision detection using precomputed neighbor list.
+    """
+
+    N, K = neighbors.shape
+
+    ri = r[:, None, :]
+    rj = r[neighbors]
+
+    vi = v[:, None, :]
+    vj = v[neighbors]
+
+    ri_rad = radii[:, None]
+    rj_rad = radii[neighbors]
+
+    dr = rj - ri
+    dist2 = jnp.sum(dr * dr, axis=-1)
+
+    rad_sum = ri_rad + rj_rad
+    overlap = rad_sum * rad_sum - dist2
+
+    dv = vj - vi
+    approaching = jnp.sum(dv * dr, axis=-1) < 0
+
+    colliding = (overlap > 0) & approaching & (neighbors >= 0)
+
+    return colliding
 
 
 def collision_event(
