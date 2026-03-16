@@ -47,6 +47,10 @@ if bUseJax :
     # ============================================================
     # Morton curve methods
     @jax.jit
+    def compute_cells(r, cell_size):
+        return jnp.floor(r / cell_size).astype(jnp.int32)
+
+    @jax.jit
     def _split_by_3bits(x):
         x &= 0x1fffff
         x = (x | (x << 32)) & 0x1f00000000ffff
@@ -63,11 +67,24 @@ if bUseJax :
                (_split_by_3bits(z) << 2))
 
     @jax.jit
+    def morton_hash(cells):
+        return (  _split_by_3bits(cells[:,0]) |
+                 (_split_by_3bits(cells[:,1]) << 1) |
+                 (_split_by_3bits(cells[:,2]) << 2) )
+
+    @jax.jit
     def compute_cells(r, cell_size):
         cells = jnp.floor(r / cell_size).astype(jnp.int32)
         # shift so negative coordinates work
         cells = cells - jnp.min(cells, axis=0)
         return cells
+
+    @jax.jit
+    def morton_sort(r, cell_size):
+        cells = compute_cells(r, cell_size)
+        keys = morton_hash(cells)
+        order = jnp.argsort(keys)
+        return order
 
     @jax.jit
     def compute_morton_codes(r, cell_size):
