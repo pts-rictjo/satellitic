@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+from .reduce import hilbert_index_batch, morton_index_batch
 
 # ============================================================
 # NASA breakup model
@@ -70,7 +71,6 @@ def fragment_cloud_model(
     if n_frag > max_fragments:
 
         compression = n_frag // max_fragments + 1
-
         idx = jnp.arange(0,n_frag,compression)
 
         frag_r = frag_r[idx]
@@ -78,13 +78,11 @@ def fragment_cloud_model(
         frag_m = frag_m[idx] * compression
 
         weight = jnp.ones_like(frag_m) * compression
-
         is_cloud = jnp.ones_like(frag_m,dtype=bool)
 
     else:
 
         weight = jnp.ones_like(frag_m)
-
         is_cloud = jnp.zeros_like(frag_m,dtype=bool)
 
     return frag_r,frag_v,frag_m,weight,is_cloud
@@ -111,6 +109,116 @@ def debris_growth_monitor(
 # --------------------------------
 # Collision handling
 # --------------------------------
+
+@partial(jax.jit, static_argnames=("cutoff_scale", "bits"))
+def build_collision_index(r, radii, bits=10, cutoff_scale=2.0):
+    """
+    Build spatial index optimized for collision detection.
+    
+    Args:
+        r: positions (N, 3)
+        radii: particle radii (N,)
+        bits: number of bits for spatial hash
+        cutoff_scale: safety factor for search radius
+    """
+    # Effective search radius per particle (2x radius for safety margin)
+    effective_radii = radii * cutoff_scale
+    
+    # Normalize positions to [0, 2^bits - 1] grid
+    mins = jnp.min(r - effective_radii[:, None], axis=0)
+    maxs = jnp.max(r + effective_radii[:, None], axis=0)
+    
+    # Scale to integer grid
+    grid = jnp.floor(
+        (r - mins) / (maxs - mins + 1e-9) * (2**bits - 1)
+    ).astype(jnp.uint64)
+    
+    # Use Hilbert for better locality (or Morton for speed)
+    hilbert_idx = hilbert_index_batch(grid, bits)
+    
+    # Sort by Hilbert index
+    order = jnp.argsort(hilbert_idx)
+    
+    return order, grid, hilbert_idx, mins, maxs
+
+
+@partial(jax.jit, static_argnames=("neighbor_window"))
+def detect_collisions(r, v, radii, mass, order, neighbor_window=64):
+    """
+    Detect collisions using Hilbert-sorted particles.
+    Only check neighbors within a window along the curve.
+    """
+    N = r.shape[0]
+    
+    # Sort particles by Hilbert order
+    r_sorted = r[order]
+    v_sorted = v[order]
+    radii_sorted = radii[order]
+    mass_sorted = mass[order]
+    
+    def scan_collisions(i, collisions):
+        """Check particle i against neighbors i+1 to i+window"""
+        
+        # Get current particle
+        r_i = r_sorted[i]
+        v_i = v_sorted[i]
+        r_i_val = radii_sorted[i]
+        m_i = mass_sorted[i]
+        
+        # Define neighbor window (forward only, avoid double counting)
+        start = i + 1
+        end = jnp.minimum(i + neighbor_window, N)
+        
+        def check_neighbor(j, coll):
+            r_j = r_sorted[j]
+            v_j = v_sorted[j]
+            r_j_val = radii_sorted[j]
+            m_j = mass_sorted[j]
+            
+            # Vector from i to j
+            dr = r_j - r_i
+            dist = jnp.sqrt(jnp.sum(dr * dr) + 1e-12)  # avoid div by zero
+            
+            # Check if overlapping
+            overlap = (r_i_val + r_j_val) - dist
+            
+            # Relative velocity
+            dv = v_j - v_i
+            
+            # Check if approaching (optional - avoid separating pairs)
+            approaching = jnp.dot(dv, dr) < 0
+            
+            # Collision condition
+            colliding = (overlap > 0) & approaching
+            
+            # Update collision list
+            coll = jax.lax.cond(
+                colliding,
+                lambda: coll.at[coll[0]].set(jnp.array([i, j, overlap, dist])),
+                lambda: coll
+            )
+            
+            # Increment counter if collision found
+            coll = coll.at[0].add(jnp.where(colliding, 1, 0))
+            
+            return coll
+        
+        # Scan through neighbors
+        collisions = lax.fori_loop(start, end, check_neighbor, collisions)
+        
+        return collisions
+    
+    # Initialize collision array: [count, (i, j, overlap, dist), ...]
+    max_collisions = N * neighbor_window // 2  # Upper bound
+    collisions = jnp.zeros((max_collisions + 1, 4), dtype=jnp.float32)
+    collisions = collisions.at[0, 0].set(1)  # Store count at index 0
+    
+    # Scan all particles
+    collisions = lax.fori_loop(0, N - 1, scan_collisions, collisions)
+    
+    return collisions
+
+
 
 def collision_event(
     key,
@@ -154,6 +262,91 @@ def collision_event(
 # ============================================================
 # Simple Elastic collisions
 # ============================================================
+@jax.jit
+def apply_elastic_collisions(r, v, mass, radii, collisions, restitution=1.0):
+    """
+    Apply elastic collision responses.
+    Uses conservation of momentum and energy.
+    """
+    N = r.shape[0]
+    n_collisions = collisions[0, 0].astype(jnp.int32)
+    
+    # Temporary buffers for velocity updates
+    dv = jnp.zeros_like(v)
+    
+    def process_collision(k, dv):
+        """Process single collision"""
+        i = collisions[k, 0].astype(jnp.int32)
+        j = collisions[k, 1].astype(jnp.int32)
+        overlap = collisions[k, 2]
+        
+        # Get particle data
+        r_i = r[i]
+        r_j = r[j]
+        v_i = v[i]
+        v_j = v[j]
+        m_i = mass[i]
+        m_j = mass[j]
+        
+        # Collision normal (from i to j)
+        dr = r_j - r_i
+        n = dr / (jnp.linalg.norm(dr) + 1e-12)
+        
+        # Relative velocity
+        v_rel = v_j - v_i
+        vn = jnp.dot(v_rel, n)
+        
+        # Only process if approaching
+        def apply_impulse(_):
+            # Reduced mass
+            mu = 2.0 / (1.0/m_i + 1.0/m_j)
+            
+            # Impulse magnitude (elastic collision)
+            J = mu * vn * (1.0 + restitution)
+            
+            # Update velocities
+            dv_i = - (J / m_i) * n
+            dv_j =   (J / m_j) * n
+            
+            # Accumulate updates
+            dv = dv.at[i].add(dv_i)
+            dv = dv.at[j].add(dv_j)
+            
+            return dv
+        
+        # Only apply if approaching
+        dv = jax.lax.cond(vn > 0, lambda: dv, apply_impulse, dv)
+        
+        return dv
+    
+    # Process all collisions
+    dv = lax.fori_loop(1, n_collisions + 1, process_collision, dv)
+    
+    # Apply velocity updates
+    v_new = v + dv
+    
+    # Optional: separate overlapping particles
+    # (simplest - push apart along normal)
+    def separate_particles(k, r):
+        i = collisions[k, 0].astype(jnp.int32)
+        j = collisions[k, 1].astype(jnp.int32)
+        overlap = collisions[k, 2]
+        
+        dr = r[j] - r[i]
+        n = dr / (jnp.linalg.norm(dr) + 1e-12)
+        
+        # Push apart equally
+        correction = 0.5 * overlap * n
+        r = r.at[i].add(-correction)
+        r = r.at[j].add(correction)
+        
+        return r
+    
+    # Only separate if needed (can cause instability)
+    # r_new = lax.fori_loop(1, n_collisions + 1, separate_particles, r)
+    
+    return v_new  #, r_new
+
 
 @jax.jit
 def resolve_collisions(r,v,m,radius,neighbors):
