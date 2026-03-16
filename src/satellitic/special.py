@@ -172,6 +172,8 @@ if bUseJax :
         return order, codes_sorted, unique, start, end
 
 else :
+    jnp = np
+
     def _split_by_3bits(x):
         x &= 0x1fffff
         x = (x | (x << 32)) & 0x1f00000000ffff
@@ -211,6 +213,8 @@ else :
         end = np.concatenate([start[1:], jnp.array([codes_sorted.shape[0]])])
         return order, codes_sorted, unique, start, end
 
+def normalize(v):
+    return v / (jnp.linalg.norm(v, axis=-1, keepdims=True) + 1e-12)
 
 if __name__ == '__main__':
     a = ["hello world", "test string", "abcabc", "no match"]
