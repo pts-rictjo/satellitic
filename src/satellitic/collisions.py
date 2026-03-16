@@ -94,7 +94,6 @@ def fragment_cloud_model(
 # ============================================================
 # Debris instability monitoring
 # ============================================================
-
 def debris_growth_monitor(
     particle_weight,
     active_mask,
@@ -110,8 +109,98 @@ def debris_growth_monitor(
     return total_fragments, warning
 
 
-def instability_warning(total_fragments):
+# --------------------------------
+# Collision handling
+# --------------------------------
 
+def collision_event(
+    key,
+    ri,vi,mi,
+    rj,vj,mj
+):
+
+    rel_v = jnp.linalg.norm(vi - vj)
+    absorb, fragment, elastic = classify_collision(
+        mi,mj,rel_v
+    )
+
+    # --------------------------------
+    # absorption
+    # --------------------------------
+
+    ri2,vi2,mi2 = absorb_body(
+        ri,vi,mi,
+        rj,vj,mj
+    )
+
+    # --------------------------------
+    # fragmentation
+    # --------------------------------
+
+    frag_r,frag_v,frag_m = generate_fragments(
+        key,
+        (ri+rj)/2,
+        (vi+vj)/2,
+        mi+mj,
+        n_frag=8
+    )
+
+    return {
+        "absorb": (ri2,vi2,mi2),
+        "fragment": (frag_r,frag_v,frag_m),
+        "elastic": None
+    }
+
+
+# ============================================================
+# Collision outcome classifier
+# ============================================================
+
+@jax.jit
+def classify_collision( mi, mj, rel_speed ):
+
+    mass_ratio = jnp.maximum(mi, mj) / (jnp.minimum(mi, mj) + 1e-12)
+    absorb = mass_ratio > 1000.0
+    kinetic = 0.5 * (mi*mj)/(mi+mj) * rel_speed**2
+    fragment = kinetic > 1e6
+    elastic = ~(absorb | fragment)
+
+    return absorb, fragment, elastic
+
+
+@jax.jit
+def absorb_body( ri,vi,mi,rj,vj,mj ):
+
+    total_mass = mi + mj
+    new_v = (mi*vi + mj*vj)/total_mass
+
+    return ri,new_v,total_mass
+
+
+def generate_fragments(key, pos, vel, total_mass, n_frag):
+
+    key1,key2 = jax.random.split(key)
+
+    # random directions
+    dirs = jax.random.normal(key1,(n_frag,3))
+    dirs = dirs / jnp.linalg.norm(dirs,axis=1,keepdims=True)
+
+    # velocity dispersion
+    speeds = jax.random.uniform(key2,(n_frag,)) * 10.0
+
+    frag_v = vel + dirs * speeds[:,None]
+
+    # equal mass split for skeleton
+    frag_m = jnp.ones(n_frag) * (total_mass/n_frag)
+
+    frag_r = pos + dirs * 0.1
+
+    return frag_r, frag_v, frag_m
+
+
+
+def instability_warning(total_fragments):
     print("\n⚠ Debris growth warning")
     print("Estimated fragments:",int(total_fragments))
     print("Possible Kessler cascade detected")
+
