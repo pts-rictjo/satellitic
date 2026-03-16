@@ -1,7 +1,6 @@
 import jax
 import jax.numpy as jnp
 
-
 # ============================================================
 # NASA breakup model
 # ============================================================
@@ -150,6 +149,51 @@ def collision_event(
         "fragment": (frag_r,frag_v,frag_m),
         "elastic": None
     }
+
+
+# ============================================================
+# Simple Elastic collisions
+# ============================================================
+
+@jax.jit
+def resolve_collisions(r,v,m,radius,neighbors):
+
+    ri = r[:,None,:]
+    rj = r[neighbors]
+
+    vi = v[:,None,:]
+    vj = v[neighbors]
+
+    mi = m[:,None]
+    mj = m[neighbors]
+
+    dr = ri - rj
+    dv = vi - vj
+
+    dist = jnp.linalg.norm(dr,axis=-1)
+
+    rad = radius[:,None] + radius[neighbors]
+
+    collision = dist < rad
+
+    n = normalize(dr)
+
+    vrel = jnp.sum(dv*n,axis=-1)
+
+    approaching = vrel < 0
+
+    mask = collision & approaching
+
+    impulse = (2*vrel)/(1/mi + 1/mj)
+
+    impulse = jnp.where(mask,impulse,0)
+
+    delta_v = impulse[...,None]*n
+
+    dv_i = -jnp.sum(delta_v/mi[...,None],axis=1)
+
+    return v + dv_i
+
 
 
 # ============================================================
