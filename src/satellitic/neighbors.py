@@ -221,12 +221,12 @@ def build_block_neighbor_list(
 
 class VerletNeighborManager:
 
-    def __init__(self, cutoff, skin):
+    def __init__(self, cutoff, skin, max_neighbors = 64):
 
         self.cutoff = cutoff
         self.skin = skin
         self.rebuild_radius = cutoff + skin
-
+        self.max_neighbors  = max_neighbors
         self.neighbors = None
         self.r_last = None
 
@@ -250,7 +250,7 @@ class VerletNeighborManager:
         neighbors = build_block_neighbor_list(
             r_sorted,
             self.rebuild_radius,
-            64
+            self.max_neighbors
         )
 
         self.neighbors = neighbors
