@@ -84,7 +84,7 @@ if bUseJax :
         cells = compute_cells(r, cell_size)
         keys = morton_hash(cells)
         order = jnp.argsort(keys)
-        return order
+        return order, cells
 
     @jax.jit
     def compute_morton_codes(r, cell_size):
