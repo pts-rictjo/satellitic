@@ -84,10 +84,8 @@ def morton_index_nd(coords, bits):
 
     return lax.fori_loop(0, bits, body, jnp.uint64(0))
 
-
 @partial(jax.jit, static_argnames=("bits",))
 def morton_index_batch(points, bits):
-
     return jax.vmap(lambda p: morton_index_nd(p, bits))(points)
 
 
@@ -143,7 +141,6 @@ def hilbert_index_nd(coords, bits):
 
 @partial(jax.jit, static_argnames=("bits",))
 def hilbert_index_batch(points, bits):
-
     return jax.vmap(lambda p: hilbert_index_nd(p, bits))(points)
 
 
@@ -153,7 +150,7 @@ def hilbert_index_batch(points, bits):
 
 @partial(jax.jit, static_argnames=("bits",))
 def build_spatial_index(X, bits):
-
+    # Dynamic with Hilbert index
     mins = jnp.min(X, axis=0)
     maxs = jnp.max(X, axis=0)
 
@@ -162,15 +159,22 @@ def build_spatial_index(X, bits):
     ).astype(jnp.uint64)
 
     morton = morton_index_batch(grid, bits)
-
     order = jnp.argsort(morton)
-
     grid_sorted = grid[order]
-
     hilbert = hilbert_index_batch(grid_sorted, bits)
 
     return grid_sorted, order, hilbert
 
+@partial(jax.jit, static_argnames=("bits",))
+def build_spatial_morton_index(X, bits):
+    # Static only Morton
+    scale = 2**bits
+    grid = jnp.floor(X * scale).astype(jnp.uint64)
+    morton = morton_index_batch(grid, bits)
+    order = jnp.argsort(morton)
+    grid_sorted = grid[order]
+
+    return grid_sorted, order
 
 # ============================================================
 # APPROXIMATE KNN USING HILBERT WINDOW
