@@ -75,8 +75,8 @@ class TrajectoryManager:
                              self.dt_frame))
         self.f.close()
         
-    def read_trj(self,traj_file):
-        with open("trajectory.trj", "rb") as f:
+    def read_trj(self,traj_file) :
+        with open(traj_file, "rb") as f:
             magic = f.read(4)
             assert magic == b"TRJ1"
 
@@ -92,6 +92,28 @@ class TrajectoryManager:
 planets = traj[:, particle_type == TYPE_PLANET]
 sats    = traj[:, particle_type == TYPE_SATELLITE]""" )
         return traj, particle_type, dt_frame ,N ,Nt
+
+    def read_trj_memmap( self, filename, N=None ) :
+        f = open(filename, "rb")
+        magic = f.read(4)
+        assert magic == b"TRJ1"
+
+        N_, Nt, dt = struct.unpack("iid", f.read(16))
+        if N is None :
+            N = N_
+
+        particle_type = np.frombuffer(f.read(N), dtype=np.uint8)
+
+        offset = 4 + 16 + N
+        traj = np.memmap(
+            filename,
+            dtype=np.float32,
+            mode="r",
+            offset=offset,
+            shape=(Nt, N, 3)
+        )
+
+        return traj, particle_type, dt, N, Nt
 
 
 def read_tles(filename):
