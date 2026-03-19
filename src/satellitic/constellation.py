@@ -21,6 +21,9 @@ from .init import *
 
 import numpy as np
 import pandas as pd
+
+import pyodbc
+
 from datetime import datetime
 
 MU = MU_EARTH_GRAV
@@ -209,6 +212,180 @@ def create_tle_from_system_selection( selection , systems_information = systems_
 
     return tle_df
 
+class SRSDatabase:
+    def __init__(self, mdb_files):
+        self.conns = []
+        self.cursors = []
+
+        for f in mdb_files:
+            conn = pyodbc.connect(
+                fr"DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={f}",
+                autocommit=True
+            )
+            conn.setdecoding(pyodbc.SQL_CHAR, "latin1")
+            conn.setencoding("latin1")
+            conn.add_output_converter(pyodbc.SQL_WVARCHAR, self._decode_utf16)
+
+            self.conns.append(conn)
+            self.cursors.append(conn.cursor())
+
+    @staticmethod
+    def _decode_utf16(raw):
+        s = raw.decode("utf-16le", errors="ignore")
+        return s.split("\x00")[0]
+
+    def table_exists(self, cursor, table):
+        """Robust Access ODBC-compatible test."""
+        for t in cursor.tables(tableType="TABLE"):
+            if t.table_name.lower() == table.lower():
+                return True
+        return False
+
+    def query(self, sql, table_hint=None):
+        if table_hint:
+            for cursor in self.cursors:
+                if self.table_exists(cursor, table_hint):
+                    return pd.read_sql(sql, cursor.connection)
+            raise ValueError(f"Table '{table_hint}' not found.")
+
+        # Try sequentially when no hint
+        for cursor in self.cursors:
+            try:
+                return pd.read_sql(sql, cursor.connection)
+            except:
+                pass
+
+        raise RuntimeError("Query failed in all MDB files.")
+
+    def show_columns(self, cursor, table):
+        print(f"\n=== Columns in {table} ===")
+        try:
+            cur_cols = cursor.columns(table=table)
+            for c in cur_cols:
+                print(" ", c.column_name)
+        except Exception as e:
+            print("FAILED:", e)
+
+    def show_table(self,table):
+        for cur in self.cursors:
+            if db.table_exists(cur, table):
+                self.show_columns(cur, table)
+                break
+
+def get_active_constellations(db: SRSDatabase, sql=None , table_hint="orbit"):
+    if sql is None :
+        sql = r"""
+SELECT
+    ng.sat_name,
+    ng.ntc_id,
+    o.orbit_set_id,
+    o.nbr_sat_pl,
+    o.right_asc,
+    o.inclin_ang,
+    o.apog_km,
+    o.perig_km,
+    o.perig_arg,
+    o.long_asc,
+    o.op_ht_km
+FROM
+    [non_geo] AS ng,
+    [orbit] AS o
+WHERE
+    ng.ntc_id = o.ntc_id
+    AND o.nbr_sat_pl > 0
+ORDER BY
+    o.orbit_set_id,
+    ng.sat_name;"""
+
+    return db.query(sql, table_hint=table_hint)
+
+def build_unique_satellite_rows( df , unique_keys = [
+        "ntc_id", 
+        "orbit_set_id",
+        "right_asc",
+        "inclin_ang",
+        "perig_arg",
+        "apog_km",
+        "perig_km"
+    ]):
+
+    df_unique = df.groupby(unique_keys).first().reset_index()
+    df_unique["seq"] = df_unique.groupby("sat_name").cumcount() + 1
+    df_unique["sat_name_seq"] = df_unique["sat_name"] + "." + df_unique["seq"].astype(str)
+    return ( df_unique )
+
+def generate_tle_file_from_srs_df( srs_df , filename="output.tle" ):
+    """
+    Generate a TLE file from the SRS-derived dataframe.
+    Each row produces one TLE entry.
+
+    Required cols: 
+    sat_name_seq, inclin_ang, right_asc, perig_arg,
+    apog_km, perig_km
+    """
+
+    # Earth constants
+    R_EARTH = 6378.137            # km
+    MU = 398600.4418              # km^3/s^2
+
+    def normalize_angle(a):
+        """Normalize angles into 0–360 range."""
+        return float(a) % 360.0 if not np.isnan(a) else 0.0
+
+    with open(filename, "w") as f:
+        for i, row in df.iterrows():
+
+            name = row["sat_name_seq"]
+
+            # Orbital elements from ITU SRS
+            inc = normalize_angle(row["inclin_ang"])
+            raan = normalize_angle(row["right_asc"])
+            argp = normalize_angle(row["perig_arg"])
+            
+            apog = row["apog_km"]
+            perig = row["perig_km"]
+
+            # Compute semimajor axis
+            a = (apog + perig) / 2 + R_EARTH        # km
+
+            # Compute eccentricity
+            ecc = (apog - perig) / (apog + perig + 2 * R_EARTH)
+            ecc = max(0.0, min(ecc, 0.9999999))     # clamp for safety
+
+            # Mean motion [revs per day]
+            n_rad_s = np.sqrt(MU / (a ** 3))
+            n_rev_day = n_rad_s * 86400 / (2 * np.pi)
+
+            # ITU has no Mean Anomaly → set to 0
+            M = 0.0
+
+            # Dummy NORAD number (ITU has none)
+            satnum = (i % 90000) + 10000
+
+            # TLE epoch: set to "00000.00000000"
+            epoch_str = "00000.00000000"
+
+            # Format eccentricity into 7-digit TLE form
+            ecc_str = f"{ecc:.7f}".split(".")[1]
+
+            # Build TLE lines (checksum omitted)
+            tle1 = f"1 {satnum:05d}U 00000A   {epoch_str}  .00000000  00000-0  00000-0 0  0000"
+            tle2 = (
+                f"2 {satnum:05d} "
+                f"{inc:8.4f} "
+                f"{raan:8.4f} "
+                f"{ecc_str:>7s} "
+                f"{argp:8.4f} "
+                f"{M:8.4f} "
+                f"{n_rev_day:11.8f}00000"
+            )
+
+            f.write(f"0 {name}\n")
+            f.write(tle1 + "\n")
+            f.write(tle2 + "\n")
+
+    print(f"TLE file written: {filename}")
+
 
 recommended_system_names = {'H' : 'Oneweb', 'A' : 'SpaceX', 'B' : 'Kuiper', 'D' : 'Telesat', 'I' : 'SES Astra LEO' }
 systems_5Cs142dE_20241108 = {'A':[[525,28,120,53,0],
@@ -244,6 +421,7 @@ cept_systems = {'Mars E-1 Config 1' : [	[	535,	28,	120,	33,	0. ] , # 29988 satel
 			[	340,	48,	110,	53,		0 ] ,
 			[	604,	12,	12,	148,		0 ] ,
 			[	614,	18,	18,	115.7,		0 ] ] }
+
 
 if __name__ == '__main__' :
     # Example one : To write TLE definitions, using default paramaters and a selection. 
@@ -296,3 +474,25 @@ if __name__ == '__main__' :
             f.write(row.tle2 + "\n")
 
     print(f"TLEs written to {output_file}")
+
+    # Example SRS DATABASE
+
+    path_ = "./"
+
+    mdb_files = [
+        path_ + "srs3048_part1of4.mdb",
+        path_ + "srs3048_part2of4.mdb",
+        path_ + "srs3048_part3of4.mdb",
+        path_ + "srs3048_part4of4.mdb",
+    ]
+
+    db = SRSDatabase(mdb_files)
+    db .show_table("geo")
+    db .show_table("orbit_set")
+
+    df = get_active_constellations(db)
+
+    print ( df )
+    print ( "\nKonstellationer:", df["orbit_set_id"].unique() )
+
+    print ( build_unique_satellite_rows( df ) )
