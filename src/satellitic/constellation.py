@@ -323,6 +323,19 @@ def build_unique_satellite_rows( df , unique_keys = [
     df_unique["sat_name_seq"] = df_unique["sat_name"] + "." + df_unique["seq"].astype(str)
     return ( df_unique )
 
+def tle_checksum(line):
+    """
+    Compute checksum for a TLE line.
+    Sum of all digits + count of '-' characters, modulo 10.
+    """
+    s = 0
+    for c in line:
+        if c.isdigit():
+            s += int(c)
+        elif c == '-':
+            s += 1
+    return str(s % 10)
+
 def generate_tle_file_from_srs_df( srs_df , filename="output.tle" ):
     """
     Generate a TLE file from the SRS-derived dataframe.
@@ -340,46 +353,56 @@ def generate_tle_file_from_srs_df( srs_df , filename="output.tle" ):
     def normalize_angle(a):
         """Normalize angles into 0–360 range."""
         return float(a) % 360.0 if not np.isnan(a) else 0.0
+	norm = lambda a:normalize_angle(a)
 
     with open(filename, "w") as f:
-        for i, row in df.iterrows():
+        for idx, row in df.iterrows():
+            name   = str(row["sat_name_seq"])
+            inc    = norm(row["inclin_ang"])
+            raan   = norm(row["right_asc"])
+            argp   = norm(row["perig_arg"])
+            lngasc = norm(row["long_asc"]) if "long_asc" in df.columns else 0.0
 
-            name = row["sat_name_seq"]
+            # --- Select best orbital distances ---
+            if "apog_dist" in df.columns and row["apog_dist"]==row["apog_dist"]:
+                rapo = float(row["apog_dist"])
+                rper = float(row["perig_dist"])
+            else:
+                rapo = float(row["apog_km"]) + R_EARTH
+                rper = float(row["perig_km"]) + R_EARTH
 
-            # Orbital elements from ITU SRS
-            inc = normalize_angle(row["inclin_ang"])
-            raan = normalize_angle(row["right_asc"])
-            argp = normalize_angle(row["perig_arg"])
-            
-            apog = row["apog_km"]
-            perig = row["perig_km"]
+            # Semimajor axis
+            a = (rapo + rper) / 2.0
 
-            # Compute semimajor axis
-            a = (apog + perig) / 2 + R_EARTH        # km
+            # Eccentricity
+            ecc = (rapo - rper) / (rapo + rper)
+            ecc = max(0.0, min(ecc, 0.9999999))
 
-            # Compute eccentricity
-            ecc = (apog - perig) / (apog + perig + 2 * R_EARTH)
-            ecc = max(0.0, min(ecc, 0.9999999))     # clamp for safety
-
-            # Mean motion [revs per day]
+            # Mean motion (rev/day)
             n_rad_s = np.sqrt(MU / (a ** 3))
             n_rev_day = n_rad_s * 86400 / (2 * np.pi)
 
-            # ITU has no Mean Anomaly → set to 0
-            M = 0.0
+            # Mean anomaly based on SRS geometry
+            M = norm(lngasc - (raan + argp))
 
-            # Dummy NORAD number (ITU has none)
-            satnum = (i % 90000) + 10000
-
-            # TLE epoch: set to "00000.00000000"
-            epoch_str = "00000.00000000"
-
-            # Format eccentricity into 7-digit TLE form
+            # TLE eccentricity formatting (7 digits, no decimal)
             ecc_str = f"{ecc:.7f}".split(".")[1]
 
-            # Build TLE lines (checksum omitted)
-            tle1 = f"1 {satnum:05d}U 00000A   {epoch_str}  .00000000  00000-0  00000-0 0  0000"
-            tle2 = (
+            # NORAD-like satellite number (deterministic)
+            satnum = (idx % 90000) + 10000
+
+            # Epoch placeholder (year-day format)
+            epoch = "24001.00000000"   # 1 Jan 2024 — fully valid TLE epoch
+
+            # --- BUILD Line 1 ---
+            line1 = (
+                f"1 {satnum:05d}U 24001A   {epoch}  "
+                f".00000000  00000-0  00000-0 0  0000"
+            )
+            line1 = line1 + tle_checksum(line1)
+
+            # --- BUILD Line 2 ---
+            line2 = (
                 f"2 {satnum:05d} "
                 f"{inc:8.4f} "
                 f"{raan:8.4f} "
@@ -388,12 +411,15 @@ def generate_tle_file_from_srs_df( srs_df , filename="output.tle" ):
                 f"{M:8.4f} "
                 f"{n_rev_day:11.8f}00000"
             )
+            line2 = line2 + tle_checksum(line2)
 
+            # --- Write TLE block ---
             f.write(f"0 {name}\n")
-            f.write(tle1 + "\n")
-            f.write(tle2 + "\n")
+            f.write(line1 + "\n")
+            f.write(line2 + "\n")
 
-    print(f"TLE file written: {filename}")
+    print(f"\nTLE file written: {filename}\n")
+
 
 
 recommended_system_names = {'H' : 'Oneweb', 'A' : 'SpaceX', 'B' : 'Kuiper', 'D' : 'Telesat', 'I' : 'SES Astra LEO' }
