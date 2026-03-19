@@ -22,7 +22,15 @@ from .init import *
 import numpy as np
 import pandas as pd
 
-import pyodbc
+bUseSRS = False
+try :
+        import pyodbc
+        bUseSRS = True
+        print("ImportSuccess:", "HAS JAX IN ENVIRONMENT")
+except ImportError :
+        print ( "ImportError:","JAX: WILL NOT USE IT")
+except OSError:
+        print ( "OSError:","JAX: WILL NOT USE IT")
 
 from datetime import datetime
 
@@ -212,69 +220,70 @@ def create_tle_from_system_selection( selection , systems_information = systems_
 
     return tle_df
 
-class SRSDatabase:
-    def __init__(self, mdb_files):
-        self.conns = []
-        self.cursors = []
 
-        for f in mdb_files:
-            conn = pyodbc.connect(
-                fr"DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={f}",
-                autocommit=True
-            )
-            conn.setdecoding(pyodbc.SQL_CHAR, "latin1")
-            conn.setencoding("latin1")
-            conn.add_output_converter(pyodbc.SQL_WVARCHAR, self._decode_utf16)
+if bUseSRS:
+    class SRSDatabase:
+        def __init__(self, mdb_files):
+            self.conns = []
+            self.cursors = []
 
-            self.conns.append(conn)
-            self.cursors.append(conn.cursor())
+            for f in mdb_files:
+                conn = pyodbc.connect(
+                    fr"DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={f}",
+                    autocommit=True
+                )
+                conn.setdecoding(pyodbc.SQL_CHAR, "latin1")
+                conn.setencoding("latin1")
+                conn.add_output_converter(pyodbc.SQL_WVARCHAR, self._decode_utf16)
 
-    @staticmethod
-    def _decode_utf16(raw):
-        s = raw.decode("utf-16le", errors="ignore")
-        return s.split("\x00")[0]
+                self.conns.append(conn)
+                self.cursors.append(conn.cursor())
 
-    def table_exists(self, cursor, table):
-        """Robust Access ODBC-compatible test."""
-        for t in cursor.tables(tableType="TABLE"):
-            if t.table_name.lower() == table.lower():
-                return True
-        return False
+        @staticmethod
+        def _decode_utf16(raw):
+            s = raw.decode("utf-16le", errors="ignore")
+            return s.split("\x00")[0]
 
-    def query(self, sql, table_hint=None):
-        if table_hint:
+        def table_exists(self, cursor, table):
+            """Robust Access ODBC-compatible test."""
+            for t in cursor.tables(tableType="TABLE"):
+                if t.table_name.lower() == table.lower():
+                    return True
+            return False
+
+        def query(self, sql, table_hint=None):
+            if table_hint:
+                for cursor in self.cursors:
+                    if self.table_exists(cursor, table_hint):
+                        return pd.read_sql(sql, cursor.connection)
+                raise ValueError(f"Table '{table_hint}' not found.")
+
+            # Try sequentially when no hint
             for cursor in self.cursors:
-                if self.table_exists(cursor, table_hint):
+                try:
                     return pd.read_sql(sql, cursor.connection)
-            raise ValueError(f"Table '{table_hint}' not found.")
+                except:
+                    pass
+            raise RuntimeError("Query failed in all MDB files.")
 
-        # Try sequentially when no hint
-        for cursor in self.cursors:
+        def show_columns(self, cursor, table):
+            print(f"\n=== Columns in {table} ===")
             try:
-                return pd.read_sql(sql, cursor.connection)
-            except:
-                pass
+                cur_cols = cursor.columns(table=table)
+                for c in cur_cols:
+                    print(" ", c.column_name)
+            except Exception as e:
+                print("FAILED:", e)
 
-        raise RuntimeError("Query failed in all MDB files.")
+        def show_table(self,table):
+            for cur in self.cursors:
+                if db.table_exists(cur, table):
+                    self.show_columns(cur, table)
+                    break
 
-    def show_columns(self, cursor, table):
-        print(f"\n=== Columns in {table} ===")
-        try:
-            cur_cols = cursor.columns(table=table)
-            for c in cur_cols:
-                print(" ", c.column_name)
-        except Exception as e:
-            print("FAILED:", e)
-
-    def show_table(self,table):
-        for cur in self.cursors:
-            if db.table_exists(cur, table):
-                self.show_columns(cur, table)
-                break
-
-def get_active_constellations(db: SRSDatabase, sql=None , table_hint="orbit"):
-    if sql is None :
-        sql = r"""
+    def get_active_constellations(db: SRSDatabase, sql=None , table_hint="orbit"):
+        if sql is None :
+            sql = r"""
 SELECT
     ng.sat_name,
     ng.ntc_id,
@@ -297,7 +306,7 @@ ORDER BY
     o.orbit_set_id,
     ng.sat_name;"""
 
-    return db.query(sql, table_hint=table_hint)
+        return db.query(sql, table_hint=table_hint)
 
 def build_unique_satellite_rows( df , unique_keys = [
         "ntc_id", 
