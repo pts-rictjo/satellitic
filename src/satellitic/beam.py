@@ -342,3 +342,20 @@ def aggregate_beams_to_ground(
         power_dbw = None
 
     return total_counts, preferred_counts, cofreq_map, power_dbw, Nvis
+
+
+def select_nco_angular(sat_dirs, pfd, Nco, min_sep_deg=2.0):
+    selected = []
+    for idx in np.argsort(pfd)[::-1]:
+        d = sat_dirs[idx]
+        bOk = True
+        for s in selected:
+            ang = np.degrees(np.arccos(np.clip(np.dot(d, s), -1, 1)))
+            if ang < min_sep_deg:
+                bOk = False
+                break
+        if bOk:
+            selected.append(d)
+        if len(selected) == Nco:
+            break
+    return selected
