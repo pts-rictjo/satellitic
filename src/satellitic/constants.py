@@ -37,7 +37,8 @@ celestial_types = {
 'Planet'    : 1 ,
 'Moon'      : 2 ,
 'Satellit'  : 3 ,
-'Other'     : 4 }
+'Other'     : 4 ,
+'Debris'	: 5 }
 
 universal_constants = { 'G' : 6.674 * 10**(-11)	, # m3/(kg s2)	# gravitational constant
 		'c' : 2.9979 * 10**8		, # m/s		# speed of light
