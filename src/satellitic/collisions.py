@@ -1,5 +1,10 @@
 import jax
 import jax.numpy as jnp
+jax.config.update("jax_enable_x64", True)
+from functools import partial
+xp=jnp
+bUseJax = True
+
 from .reduce import hilbert_index_batch, morton_index_batch
 
 # ============================================================
@@ -463,10 +468,13 @@ def generate_fragments(key, pos, vel, total_mass, n_frag):
 
     return frag_r, frag_v, frag_m
 
-
+def apply_collision_response( r, v, m, radii, neighbors, colliding,
+        restitution = 1.0 ) :
+    print("NOT IMPLEMENTED: COLLISIONS ARE CURRENTLY UNDER DEVELOPMENT")
+    exit(1)
 
 def instability_warning(total_fragments):
-    print("\n⚠ Debris growth warning")
+    print("\n Debris growth warning")
     print("Estimated fragments:",int(total_fragments))
     print("Possible Kessler cascade detected")
 

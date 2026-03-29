@@ -541,6 +541,8 @@ def newtonian_simulator( \
         run_system.ledger = InteractionLedger( mass_rule = run_parameters['mass_rule'] ,
                     mass_epsilon = run_parameters['mass_epsilon'] )
     else :
+        print ( "Using mass interaction rules: (mass_rule , mass_epsilon)" ,
+               ( run_parameters['mass_rule'] , run_parameters['mass_epsilon'] ) )
         run_system.ledger = InteractionLedger()
     ledger = run_system.ledger
     ledger .constants = constants
@@ -569,8 +571,8 @@ def newtonian_simulator( \
         print ( 'Have', params )
 
     sim = simulate( r, v, m, dt = dt,
-            Nsteps = Nsteps, steps_per_frame = steps_per_frame,
-            params=params, bUseJax = bUseJax )
+        Nsteps = Nsteps, steps_per_frame = steps_per_frame,
+        params=params, bUseJax = bUseJax )
 
     writer = None
     if bWriteTrajectory :
@@ -583,7 +585,6 @@ def newtonian_simulator( \
         writer.write_cdp(run_system)
 
     if bAnimated :
-
         import signal
         def handle_sigint(sig, frame):
             print("\nUser requested shutdown.")
@@ -776,7 +777,343 @@ def newtonian_simulator( \
             print("\nSimulation interrupted by user.")
 
         finally:
-            if write is not None :
+            if writer is not None :
+                writer.close()
+            print("Trajectory file closed cleanly.")
+
+
+def jax_simulator( \
+    run_parameters = { 'dt':5e0,
+            'Nsteps':None ,
+            'steps_per_frame':100 ,
+            'mass_epsilon':None ,
+            'mass_rule':None,
+            'debris':False ,
+            'close range interactions' : False,
+            'write positions'  : True  ,
+            'write velocities' : False ,
+            'write masses'     : False } ,
+    system_topology     = solarsystem ,
+    system_constants    = constants_solar_system ,
+    satellite_topology  = None ,
+    bAnimated = False ,
+    visual_params = { 'visual_moon_scale':10 , 'size_sats':4 },
+    bWriteTrajectory = False, trajectory_filename = None ,
+    bVerbose = False , bUseJax=bUseJax ) :
+    #
+    # BEGIN : User parser
+    bUseJax = True
+    import jax.numpy as xp
+
+    Nsteps			= run_parameters.get('Nsteps',None)
+    dt				= run_parameters.get('dt',5e0 )
+    steps_per_frame = run_parameters.get('steps_per_frame',100 )
+
+    # Get your steps in
+    if not Nsteps is None :
+        max_steps = Nsteps * steps_per_frame
+    #
+    # Setting output names if requested
+    if trajectory_filename is not None and bWriteTrajectory == False :
+        # The user supplied a name but did not set the flag
+        if not '.trj' in trajectory_filename :
+            trajectory_filename += '.trj'
+        bWriteTrajectory = True
+    #
+    if bWriteTrajectory == True and trajectory_filename is None :
+        # The user wants a timestamped name
+        import time
+        trajectory_filename = 'traj_' + time.asctime().replace(':','-').replace(' ','_') + '.trj'
+
+    if bVerbose :
+        print(f"""Starting simulation of {system_topology}
+            using {run_parameters} """)
+        if not satellite_topology is None:
+            print( f"""with satellite information from :\n {satellite_topology} """)
+
+    run_system = build_run_system( solarsystem,
+        constants_solar_system ,
+        satellite_topology )
+    run_system.apply_barycentric_motion_correction()
+    # END : User parser
+    #
+    #
+    # BEGIN : Create internal structures
+    r, v, m, stypes , snames = run_system.phase_state()
+    if bVerbose :
+        print('Built initial system phase space')
+        print( r , '\n' , v , '\n' , m )
+    #
+    # CREATION AND SETUP OF A LEDGER
+    from .constants import InteractionLedger
+    print ( run_parameters )
+    if not ( run_parameters.get('mass_epsilon',None) is None and run_parameters.get('mass_rule',None) is None ) :
+        run_system.ledger = InteractionLedger( mass_rule = run_parameters.get('mass_rule',None) ,
+                    mass_epsilon = run_parameters.get('mass_epsilon',None) )
+    else :
+        run_system.ledger = InteractionLedger()
+    ledger = run_system.ledger
+    ledger .constants = constants
+    ledger .set_phase_space( run_system.phase_space() )
+    if run_system.satellites_object is not None :
+        ledger .satellites_objects = [ [sobj[0],*sobj[1].get_index_pairs()] for sobj in run_system.satellites_object ]
+    ledger .convert_partition_types(xp)
+
+    const = constants()
+    r   = backend_array(r, xp)
+    v   = backend_array(v, xp)
+    m   = backend_array(m, xp)
+    #
+    Ncurrent = len(m)
+    Nsat = len( xp.where( stypes == celestial_types['Satellit'])[0] )
+    if Nsat > 0 :
+        print(f'Applied J2 corrections to {Nsat} LEO satellites')
+
+    from .constants import build_params
+    params = build_params(run_system)
+    params = {**run_parameters,**params}
+    if bVerbose:
+        print ( 'Jax structs initialized')
+        print ( 'Have:', params )
+    # END : Create internal structures
+    #
+    #
+    print ( 'Simulating celestial dynamics')
+    print ( Ncurrent , 'body problem ... ' )
+    from .simulator import simulate
+    #from .simulator import simulate_jax_stream as simulate
+    sim = simulate( r, v, m, dt = dt,
+                   Nsteps = Nsteps, steps_per_frame = steps_per_frame,
+                   params = params )
+
+    writer = None
+    if bWriteTrajectory :
+        from .iotools import TrajectoryManager
+        from functools import reduce
+
+        iFlag = 0
+        flags = []
+        if params['write positions']:
+            flags.append(TrajectoryManager.FLAG_POS )
+        if params['write velocities']:
+            flags.append(TrajectoryManager.FLAG_VEL )
+        if params['write masses']:
+            flags.append(TrajectoryManager.FLAG_MASS)
+            print ( "warning: currently not correctly implemented" )
+        iFlag = reduce( lambda x, y: x | y, flags , True )
+
+        if iFlag == 0 :
+            bWriteTrajectory = False
+        else :
+            writer = TrajectoryManager(
+                trajectory_filename     ,
+                particle_types = run_system.get_particle_types() ,
+                dt_frame = dt * steps_per_frame ,
+                version  = 2 ,
+                flags = iFlag ,
+                dynamic = params.get('debris',False)
+            )
+            writer.write_cdp(run_system)
+
+    if bAnimated :
+        #
+        # termination handler
+        import signal
+        def handle_sigint(sig, frame):
+            print("\nUser requested shutdown.")
+            timer.stop()
+            if bWriteTrajectory:
+                if writer is not None :
+                    writer.close()
+            canvas.close()
+        #
+        # Niceness clash between sigint handlers ...
+        signal.signal(signal.SIGINT, handle_sigint)
+
+        #
+        # Still need to generalize this
+        idx_earth   = run_system.find_indices_of('Earth')[0]
+        idx_sun     = run_system.find_indices_of('Sun')[0]
+        idx_moon    = run_system.find_indices_of('EarthMoon')[0]
+        idx_leo     = run_system.find_indices_of('LEO')
+
+        moon_scale_factor   = visual_params['visual_moon_scale']       # purely visual
+        size_sats           = visual_params['size_sats']
+
+        #
+        # ---- VisPy 2D projected solar system plot ----
+        from vispy import app, scene
+        from vispy.scene import visuals
+        from vispy.visuals.transforms.linear import MatrixTransform
+
+        # ---- State data container for yields ----
+        r_np = np.asarray(r)
+        N = r_np.shape[0]
+
+        sizes  = np.full(N, 20, dtype=np.float32)
+        colors = np.full((N, 4), np.array([0.5, 0.5, 0.5, 1.0]), dtype=np.float32)
+
+        # special bodies
+        sizes[idx_sun]   = 30
+        sizes[idx_moon]  = 8
+        sizes[idx_leo]   = 2
+
+        colors[idx_sun]   = np.array([1.0, 1.0, 0.0, 1.0])   # yellow
+        colors[idx_earth] = np.array([0.0, 0.4, 1.0, 1.0])   # blue
+        colors[idx_moon]  = np.array([1.0, 1.0, 1.0, 1.0])   # white
+
+        AU = constants('AU')
+
+        # ---- and visualisation : part 1 ----
+        #
+        # Canvas & view
+        canvas = scene.SceneCanvas(
+            keys='interactive',
+            size=(800, 800),
+            bgcolor='black',
+            show=True
+        )
+        # Whole system
+        view = canvas.central_widget.add_view()
+        view.camera = scene.cameras.PanZoomCamera(aspect=1)
+        view.camera.set_range(
+            x=(-1.2*AU, 1.2*AU),
+            y=(-1.2*AU, 1.2*AU)
+        )
+
+        # Scatter visual
+        markers = visuals.Markers()
+        markers.set_data(
+            r_np[:, :3],
+            face_color=colors,
+            size=sizes
+        )
+        view.add(markers)
+
+        # Earth-centric 3D canvas
+        canvas_ec = scene.SceneCanvas(
+            keys='interactive',
+            size=(400, 400),
+            bgcolor='black',
+            show=True,
+            title='Earth-centric view'
+        )
+        Re = constants('REarth')
+        R  = constants('DMoon')  # ~ Earth - Moon distance
+
+        view_ec = canvas_ec.central_widget.add_view()
+        viewdistance = Re*2.5
+        view_ec.camera = scene.cameras.TurntableCamera(
+            fov = 90,
+            distance = viewdistance
+        )
+        f_ = 1.05
+        view_ec.camera.set_range(
+            x=(-f_*R, f_*R),
+            y=(-f_*R, f_*R),
+            z=(-f_*R, f_*R)
+        )
+
+        earth = visuals.Sphere(
+            radius=Re,
+            method='latitude',
+            color=(0.1, 0.3, 1.0, 0.4)
+        )
+        view_ec.add(earth)
+
+        # Earth-centric positions
+        earth_pos = r_np[idx_earth]
+        r_moon = r_np[idx_moon] - earth_pos
+        r_sats = r_np[idx_leo]  - earth_pos
+
+        #
+        # --- Move Moon ---
+        moon = visuals.Sphere(
+            radius = constants("RMoon") * moon_scale_factor ,
+            method = 'latitude',
+            color = (0.8, 0.8, 0.8, 1.0)
+        )
+        moon.transform = MatrixTransform()
+        moon.transform.translate(r_moon)
+        view_ec.add(moon)
+
+        # --- Update satellites ---
+        sat_marker = visuals.Markers()
+        sat_marker.set_data(
+            pos  = r_sats,
+            size = size_sats,
+        )
+        view_ec.add(sat_marker)
+
+        def update(event) :
+
+            r_new, v_new, m_new, step_count = next(sim)
+            if bUseJax:
+                r_new.block_until_ready()
+            r_np = np.asarray(r_new)
+            v_np = np.asarray(v_new)
+            m_np = np.asarray(m_new)
+            #
+            # System view
+            markers.set_data(
+                r_np[:, :3],
+                face_color=colors,
+                size=sizes
+            )
+
+            # Earth-centric 3D view
+            earth_pos = r_np[idx_earth]
+            r_moon = r_np[idx_moon] - earth_pos
+            r_sats = r_np[idx_leo] - earth_pos
+
+            # --- Move Moon ---
+            moon.transform .reset()
+            moon.transform .translate(r_moon)
+
+            sat_marker.set_data(
+                pos=r_sats , size = size_sats
+            )
+
+            if bWriteTrajectory :
+                writer.write_step( r=r_np , v=v_np , m=m_np )
+
+            if Nsteps is not None and step_count >= max_steps:
+                print(f"Finished {Nsteps} step simulation")
+                timer.stop()
+                if bWriteTrajectory:
+                    writer.close()
+                    canvas.close()
+                    return
+
+        timer = app.Timer(interval=1/30)
+        timer.connect(update)
+        timer.start()
+        app.run()
+
+    else :
+        print("Running batch simulation...")
+
+        try:
+            while True:
+                r_new, v_new, m_new, step_count = next(sim)
+
+                if bUseJax:
+                    r_new.block_until_ready()
+
+                if bWriteTrajectory and writer is not None :
+                    writer.write_step( r = np.asarray(r_new) ,
+                                       v = np.asarray(v_new) ,
+                                       m = np.asarray(m_new))
+
+                if Nsteps is not None and step_count >= max_steps:
+                    print(f"Finished {Nsteps} step simulation")
+                    break
+
+        except KeyboardInterrupt:
+            print("\nSimulation interrupted by user.")
+
+        finally:
+            if writer is not None :
                 writer.close()
             print("Trajectory file closed cleanly.")
 

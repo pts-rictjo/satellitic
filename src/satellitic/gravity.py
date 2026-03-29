@@ -13,6 +13,13 @@ lic_ = """
    See the License for the specific language governing permissions and
    limitations under the License.
 """
+import jax
+jax.config.update("jax_enable_x64", True)
+from functools import partial
+import jax.numpy as jnp
+xp=jnp
+bUseJax = True
+
 @jax.jit
 def accel(r, m, params):
 

@@ -129,6 +129,8 @@ class TrajectoryManager:
 
     def __init__(self, filename, particle_types=None, dt_frame=1.0,
                  version=2, flags=None, dynamic=False):
+        import pickle as pwrite
+        self.pwrite_    = pwrite
 
         self.filename_ = filename
         self.f = open(filename, "wb")
@@ -167,11 +169,11 @@ class TrajectoryManager:
 
             self.f.write(struct.pack(
                 "iiiid",
-                version,
-                flags,
-                self.N,
-                Nt_placeholder,
-                dt_frame
+                int(version),
+                int(flags),
+                int(self.N),
+                int(Nt_placeholder),
+                float(dt_frame)
             ))
 
             if not dynamic and particle_types is not None:
@@ -243,6 +245,18 @@ tm.write_step(r, types=types_step)
             f.write(t.tobytes())
 
         self.N_steps_written += 1
+
+    def write_cdp( self, run_system ) :
+        # Output some celestial dynamics parameters
+        # and initial state
+        # Needs a read/load function later...
+        # state_var = pickle.load(f)
+        #
+        ofile = open(self.filename_.replace('.trj','.cdp'),'wb')
+        self.pwrite_.dump( run_system.phase_state(), ofile )
+        if run_system.satellites_object is not None :
+            self.pwrite_.dump( run_system.ledger.satellites_objects , file=ofile )
+        ofile.close()
 
     # --------------------------------------------------
     # CLOSE

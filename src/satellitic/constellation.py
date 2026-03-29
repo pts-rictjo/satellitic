@@ -26,17 +26,18 @@ bUseSRS = False
 try :
         import pyodbc
         bUseSRS = True
-        print("ImportSuccess:", "HAS JAX IN ENVIRONMENT")
+        print("ImportSuccess:", "HAS pyodbc IN ENVIRONMENT")
 except ImportError :
-        print ( "ImportError:","JAX: WILL NOT USE IT")
+        print ( "ImportError:","pyodbc: WILL NOT USE IT")
 except OSError:
-        print ( "OSError:","JAX: WILL NOT USE IT")
+        print ( "OSError:","pyodbc: WILL NOT USE IT")
 
 from datetime import datetime
 
 MU = MU_EARTH_GRAV
 R_EARTH = R_EARTH_KM
 
+from .constants import cept_systems, systems_5Cs142dE_20241108, recommended_system_names
 # ---------------------------------------------------------------------
 # Orbital utilities
 # ---------------------------------------------------------------------
@@ -353,7 +354,8 @@ def generate_tle_file_from_srs_df( srs_df , filename="output.tle" ):
     def normalize_angle(a):
         """Normalize angles into 0–360 range."""
         return float(a) % 360.0 if not np.isnan(a) else 0.0
-	norm = lambda a:normalize_angle(a)
+
+    norm = lambda a:normalize_angle(a)
 
     with open(filename, "w") as f:
         for idx, row in df.iterrows():
@@ -421,53 +423,16 @@ def generate_tle_file_from_srs_df( srs_df , filename="output.tle" ):
     print(f"\nTLE file written: {filename}\n")
 
 
-
-recommended_system_names = {'H' : 'Oneweb', 'A' : 'SpaceX', 'B' : 'Kuiper', 'D' : 'Telesat', 'I' : 'SES Astra LEO' }
-systems_5Cs142dE_20241108 = {'A':[[525,28,120,53,0],
-		[530,28,120,43,0],
-		[535,24, 28,33,0],
-		[535, 4, 27,33,0]],
-           'B':[[590,28, 28,33,0],
-		[610,36, 36,42,0],
-		[630,34, 34,51.9,0]],
-           'C':[[35786,1,1,0,0]],
-           'D':[[1050,12,28,89,0]],
-           'E':[[1414,8,6,52,0]],
-           'F':[[range(450,900+1),81,range(1,8+1),[r*0.1 for r in range(990)],0]],
-           'G':[[range(340,614+1),794,range(12,120+1),range(33,148+1),0]],
-           'H':[[[600,1200],132,range(36,72+1),[i*0.1 for i in range(400,880)],0]],
-           'I':[[8062,1,32,0,0],
-		[8062,4,16,90,0],
-		[8062,6,12,45,0]],
-           'J':[[1175,18,48,86.5,0]],
-           'K':[[355,24,124,50,0],
-		[347,24,124,50.2,0]],
-           'L':[[*a,0] for a in zip([500, 500, 600, 600, 700, 700, 800, 800, 900, 900, 1000, 1000, 1100, 1100, 1200, 1200, 1300, 1300, 1400, 1400, 8100, 8100, 8100, 8100, 8100, 8100, 8100, 8100, 12000, 12000, 12000, 12000, 12000, 12000, 12000, 12000, 16000, 16000, 16000, 16000, 16000, 16000, 16000, 16000, 20000, 20000, 20000, 20000, 20000, 20000, 20000, 20000, 23222, 23222] , [36, 36, 36, 36, 34, 34, 30, 30, 28, 28, 24, 24, 24, 24, 22, 24, 20, 20, 18, 18, 1, 12, 12, 12, 12, 12, 12, 12, 1, 12, 12, 12, 12, 12, 12, 12, 1, 12, 12, 12, 12, 12, 12, 12, 1, 12, 12, 12, 12, 12, 12, 12, 1, 12] , [36, 36, 32, 32, 32, 32, 32, 32, 30, 30, 24, 24, 24, 24, 24, 24, 24, 24, 20, 20, 96, 10, 10, 10, 10, 10, 10, 10, 96, 10, 10, 10, 10, 10, 10, 10, 96, 10, 10, 10, 10, 10, 10, 10, 96, 10, 10, 10, 10, 10, 10, 10, 96, 9] , [50, 85, 50, 85, 50, 85, 50, 85, 50, 85, 50, 85, 50, 85, 50, 89, 50, 85, 50, 85, 0, 15, 45, 60, 65, 70, 75, 80, 0, 15, 45, 60, 65, 70, 75, 80, 0, 15, 45, 60, 65, 70, 75, 80, 0, 15, 45, 60, 65, 70, 75, 80, 0, 56]) ],
-           'M':[[*a,0] for a in zip( [340, 345, 350, 360, 525, 530, 535, 604, 614], [12, 18, 48, 48, 48, 30, 28, 28, 28] , [110, 110, 110, 120, 120, 120, 120, 12, 18] , [53, 46, 38, 97, 53, 43, 33, 148, 116] ) ]
-}
-
-
-cept_systems = {'Mars E-1 Config 1' : [	[	535,	28,	120,	33,	0. ] , # 29988 satellites
-			[	530,	28,	120,	43,		0 ] ,
-			[	525,	28,	120,	53,		0 ] ,
-			[	360,	30,	120,	96.9,	0 ] ,
-			[	350,	48,	110,	38,		0 ] ,
-			[	345,	48,	110,	46,		0 ] ,
-			[	340,	48,	110,	53,		0 ] ,
-			[	604,	12,	12,	148,		0 ] ,
-			[	614,	18,	18,	115.7,		0 ] ] }
-
-
 if __name__ == '__main__' :
     # Example one : To write TLE definitions, using default paramaters and a selection. 
-	# Note that the required parameters systems_information and system_names are set to
-	# defaults systems_5Cs142dE_20241108 and recommended_system_names but can be any 
-	# viable dictionaries. 
-	# Issue the below commands to generate a default tle file:
+    # Note that the required parameters systems_information and system_names are set to
+    # defaults systems_5Cs142dE_20241108 and recommended_system_names but can be any
+    # viable dictionaries.
+    # Issue the below commands to generate a default tle file:
     selection		= ['A','B','D']
     tle_df = create_tle_from_system_selection( selection , output_file = "constellation_systems-" + '-'.join(selection) + ".tle" )
 
-	# example two : Here the functionallity is detailed in greater depth
+    # example two : Here the functionallity is detailed in greater depth
     selection = ['A','B','I'] # ( A and M are variations of the same system )
     study_systems = [ systems_5Cs142dE_20241108[sys] for sys in selection ]
     print ( f'Will attempt to study systems {", ".join(selection)} corresponding to {", ".join([recommended_system_names[s] for s in selection])} respectively' )
