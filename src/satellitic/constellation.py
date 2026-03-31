@@ -37,7 +37,7 @@ from datetime import datetime
 MU = MU_EARTH_GRAV
 R_EARTH = R_EARTH_KM
 
-from .constants import cept_systems, systems_5Cs142dE_20241108, recommended_system_names
+from .constants import cept_systems, systems_5Cs142dE_20241108, systems_5Cs142dE, recommended_system_names
 # ---------------------------------------------------------------------
 # Orbital utilities
 # ---------------------------------------------------------------------
@@ -187,9 +187,11 @@ def build_constellation_df( input:list ) -> pd.DataFrame :
       ]
     ) )
 
-def create_tle_from_system_selection( selection , systems_information = systems_5Cs142dE_20241108 ,
-					system_names = recommended_system_names , bVerbose=False ,
+def create_tle_from_system_selection( selection , systems_information = systems_5Cs142dE ,
+					system_names = None , bVerbose=False ,
 					output_file = None ) :
+    if system_names is None :
+        system_names = { s:s for s in selection }
 
     study_systems	= [ systems_information[sys]	for sys in selection ]
 
@@ -207,7 +209,7 @@ def create_tle_from_system_selection( selection , systems_information = systems_
     print ( f"Generated {len(tle_df)} satellites\n" )
 
     # Swap in system names
-    tle_df['system'] = [  v + '-' + system_names[v] for v in tle_df.loc[:,'system'].values ]
+    tle_df['system'] = [  v + '-' + system_names.get(v,'') for v in tle_df.loc[:,'system'].values ]
 
     if bVerbose :
         print ( tle_df )
@@ -220,6 +222,7 @@ def create_tle_from_system_selection( selection , systems_information = systems_
                 f.write(row.tle2 + "\n")
 
     return tle_df
+
 
 
 if bUseSRS:
