@@ -281,7 +281,7 @@ if bUseSRS:
 
         def show_table(self,table):
             for cur in self.cursors:
-                if db.table_exists(cur, table):
+                if self.table_exists(cur, table):
                     self.show_columns(cur, table)
                     break
 
