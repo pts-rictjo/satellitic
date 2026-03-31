@@ -87,4 +87,26 @@ if __name__=='__main__':
     selection		= ['A','B','D']
     tle_df = create_tle_from_system_selection( selection , output_file = "constellation_systems-" + '-'.join(selection) + ".tle" )
 ```
+## creating TLE:s from a SRS database
+```
+    from satellitic.constellation import SRSDatabase, get_active_constellations, build_unique_satellite_rows, generate_tle_file_from_srs_df
+
+    path_ = "Data/Satellit/SRS/srs3048/"
+
+    mdb_files = [
+        path_ + "srs3048_part1of4.mdb",
+        path_ + "srs3048_part2of4.mdb",
+        path_ + "srs3048_part3of4.mdb",
+        path_ + "srs3048_part4of4.mdb",
+    ]
+
+    db = SRSDatabase(mdb_files)
+    db .show_table("geo")
+    db .show_table("orbit_set")
+
+    df = get_active_constellations(db)
+    df = build_unique_satellite_rows( df )
+
+    generate_tle_file_from_srs_df( df , filename="srs3048.tle" )
+```
 
