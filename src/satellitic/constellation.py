@@ -422,6 +422,116 @@ def generate_tle_file_from_srs_df( srs_df , filename="output.tle" ):
 
     print(f"\nTLE file written: {filename}\n")
 
+def load_excel_files(file1, file2, file3):
+    df1 = pd.read_excel(file1)
+    df2 = pd.read_excel(file2)
+    df3 = pd.read_excel(file3)
+    return df1, df2, df3
+
+
+def merge_data(df1, df2, df3):
+    # Slå ihop på gemensamma nycklar
+    key = ["orbit_set_id", "orb_id"]
+
+    df = df1.merge(df2, on=key, how="inner", suffixes=("", "_2"))
+    df = df.merge(df3, on=key, how="inner", suffixes=("", "_3"))
+
+    return df
+
+
+def extract_parameters(df):
+    if df.empty:
+        raise ValueError("Dataframe is empty after merge")
+
+    def find_col(name):
+        for c in df.columns:
+            if name.lower() in c.lower():
+                return c
+        raise KeyError(f"Column {name} not found")
+
+    orbit_col		= find_col("orbit_set_id")
+    orb_col		= find_col("orb_id")
+    height_col		= find_col("op_ht")
+    height_exp_col	= find_col("op_ht_exp")
+    sats_col		= find_col("nbr_sat_pl")
+    incl_col		= find_col("inclin_ang")
+
+    # RAAN optional
+    try:
+        raan_col = find_col("right_asc")
+    except:
+        try:
+            raan_col = find_col("long_asc")
+        except:
+            raan_col = None
+
+    results = []
+
+    values	= { orbit_col: 0 }
+    df		= df.fillna( value=values )
+
+    group_cols = [
+        orbit_col, height_col, incl_col, sats_col
+    ]
+    if height_exp_col:
+        group_cols.append(height_exp_col)
+
+    for _, group in df.groupby( group_cols ) : # orbit_col
+
+        height_km	= group[height_col].iloc[0]
+
+        try :
+            height_km = (group[height_col] * (10 ** group[height_exp_col])).iloc[0]
+        except :
+            height_km = group[height_col].iloc[0]
+
+        n_planes	= group[ orb_col] .nunique()
+        sats_per_plane	= group[sats_col] .iloc[ 0 ]
+        inclination_deg	= group[incl_col] .iloc[ 0 ] # not used
+
+        raan0_deg = group[raan_col].iloc[0] if raan_col else 0
+        if pd.isna(raan0_deg):
+            raan0_deg = 0
+
+        results.append([
+            int(height_km),
+            int(n_planes),
+            int(sats_per_plane),
+            int(inclination_deg),
+            int(raan0_deg)
+        ])
+
+    return results
+
+def build_structure(data):
+    if not data:
+        return []
+    cols = list(zip(*data))
+    return [ a for a in zip(*cols)]
+
+
+def create_constellation_dict(file_triplets, labels=None):
+    """
+    file_triplets: lista av tuples [(f1,f2,f3), ...]
+    labels: t.ex ['L','M','N']
+    """
+
+    if labels is None:
+        labels = [f"set_{i}" for i in range(len(file_triplets))]
+
+    result = {}
+
+    for (files, label) in zip(file_triplets, labels):
+        df1, df2, df3 = load_excel_files(*files)
+        merged = merge_data(df1, df2, df3)
+        params = extract_parameters(merged)
+        structured = build_structure(params)
+
+        result[label] = structured
+
+    return result
+
+
 
 if __name__ == '__main__' :
     # Example one : To write TLE definitions, using default paramaters and a selection. 
@@ -496,3 +606,16 @@ if __name__ == '__main__' :
     print ( "\nKonstellationer:", df["orbit_set_id"].unique() )
 
     print ( build_unique_satellite_rows( df ) )
+
+
+    path = "Data/Satellit/OrbitSystems/Detailed orbit characteristics of systems in Table 1/"
+
+    system_fns = lambda A,path : tuple([ path+A.join(["System "," Orbital Parameters "]) + str(i+1) + '.xlsx' for i in range(3) ])
+
+    which_system = 'L'
+    constellations = create_constellation_dict(
+        [system_fns(which_system,path)],
+        labels=[which_system]
+    )
+
+    print( constellations[which_system] )
