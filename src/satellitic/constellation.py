@@ -340,7 +340,7 @@ def tle_checksum(line):
             s += 1
     return str(s % 10)
 
-def generate_tle_file_from_srs_df( srs_df , filename="output.tle" ):
+def generate_tle_file_from_srs_df( df , filename="output.tle" ):
     """
     Generate a TLE file from the SRS-derived dataframe.
     Each row produces one TLE entry.
@@ -622,3 +622,25 @@ if __name__ == '__main__' :
     )
 
     print( constellations[which_system] )
+
+
+    from satellitic.constellation import SRSDatabase, get_active_constellations
+
+    path_ = '../../Data/Satellit/SRS/srs3048/'
+
+    mdb_files = [
+        path_ + "srs3048_part1of4.mdb",
+        path_ + "srs3048_part2of4.mdb",
+        path_ + "srs3048_part3of4.mdb",
+        path_ + "srs3048_part4of4.mdb",
+    ]
+
+    db = SRSDatabase(mdb_files)
+    db .show_table("geo")
+    db .show_table("orbit_set")
+
+    df = get_active_constellations(db)
+    df = build_unique_satellite_rows( df )
+
+    generate_tle_file_from_srs_df( df , filename="srs3048.tle" )
+
