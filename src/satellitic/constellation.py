@@ -97,7 +97,89 @@ def format_tle(
 
     return l1, l2
 
-def generate_constellation_tles(
+
+def generate_constellation_tles_realistic(
+    df: pd.DataFrame,
+    satnum_start: int = 10000,
+    eccentricity: float = 1e-4,
+    argp_deg: float = 0.0,
+    bstar: float = 0.0
+):
+
+    MU = 398600.4418
+    R_E = 6378.137
+
+    tles = []
+    satnum = satnum_start
+    epoch = datetime.utcnow()
+
+    epoch_day = (
+        (epoch - datetime(epoch.year, 1, 1)).total_seconds() / 86400.0
+    ) + 1
+
+    for _, row in df.iterrows():
+
+        n_planes = int(row.n_planes)
+        sats_per_plane = int(row.sats_per_plane)
+
+        # --- Orbital mechanics
+        a = R_E + row.height_km
+        n_rad_s = np.sqrt(MU / a**3)
+        mean_motion = n_rad_s * 86400.0 / (2*np.pi)
+
+        # GEO override
+        if row.height_km > 35000:
+            mean_motion = 1.0027
+
+        # --- Inferred parameters
+        F = int(np.round(n_planes / 3)) if n_planes > 1 else 0
+        raan_span = 360.0 if n_planes > 1 else 0.0
+
+        for p in range(n_planes):
+
+            raan_deg = (
+                row.raan0_deg +
+                p * raan_span / n_planes
+            ) % 360.0
+
+            for s in range(sats_per_plane):
+
+                mean_anomaly_deg = (
+                    s * 360.0 / sats_per_plane +
+                    p * F * 360.0 / (n_planes * sats_per_plane)
+                ) % 360.0
+
+                # --- realism noise
+                ecc = np.random.uniform(1e-5, 5e-4)
+                mean_anomaly_deg += np.random.uniform(-0.1, 0.1)
+                raan_deg += np.random.uniform(-0.05, 0.05)
+
+                tle1, tle2 = format_tle(
+                    satnum=satnum,
+                    epoch=epoch,
+                    inc=row.inclination_deg,
+                    raan=raan_deg,
+                    ecc=ecc,
+                    argp=0.0,
+                    M=mean_anomaly_deg,
+                    n=mean_motion,
+                    bstar=bstar
+                )
+
+                tles.append({
+                    "system": row.system,
+                    "satnum": satnum,
+                    "plane": p,
+                    "slot": s,
+                    "tle1": tle1,
+                    "tle2": tle2
+                })
+
+                satnum += 1
+
+    return pd.DataFrame(tles)
+
+def generate_constellation_tles_legacy(
     df: pd.DataFrame,
     satnum_start: int = 10000,
     eccentricity: float = 1e-4,
@@ -168,6 +250,140 @@ def generate_constellation_tles(
 
     return pd.DataFrame(tles)
 
+#
+## SGP4 juggling related
+def wrap360(x):
+    return x % 360.0
+
+
+def safe_eccentricity(height_km):
+    # tighter than before → avoids SGP4 instability
+    if height_km > 35000:   # GEO
+        return 1e-6
+    elif height_km > 10000: # MEO
+        return np.random.uniform(1e-6, 5e-5)
+    else:                   # LEO
+        return np.random.uniform(1e-6, 1e-4)
+
+
+def mean_motion_from_altitude(height_km):
+    MU = 398600.4418
+    R_E = 6378.137
+
+    a = R_E + height_km
+    n_rad_s = np.sqrt(MU / a**3)
+    n_rev_day = n_rad_s * 86400.0 / (2*np.pi)
+
+    # hard safety clamp (SGP4 stability)
+    return float(np.clip(n_rev_day, 0.1, 18.0))
+
+
+def generate_constellation_tles_safe(
+    df: pd.DataFrame,
+    satnum_start: int = 10000,
+    eccentricity: float = 1e-4,
+    argp_deg: float = 0.0,
+    bstar: float = 0.0,
+    max_retries: int = 3,
+):
+    from sgp4.api import Satrec
+
+    tles = []
+    satnum = satnum_start
+    epoch = datetime.utcnow()
+
+    for _, row in df.iterrows():
+
+        n_planes = int(row.n_planes)
+        sats_per_plane = int(row.sats_per_plane)
+
+        # --- orbital parameters
+        mean_motion = mean_motion_from_altitude(row.height_km)
+
+        # GEO override (strict)
+        is_geo = row.height_km > 35000
+        if is_geo:
+            mean_motion = 1.0027
+
+        # inferred Walker phasing
+        F = int(np.round(n_planes / 3)) if n_planes > 1 else 0
+        raan_span = 360.0 if n_planes > 1 else 0.0
+
+        for p in range(n_planes):
+
+            base_raan = (
+                row.raan0_deg +
+                p * raan_span / n_planes
+            )
+
+            # small plane-level perturbation ONLY
+            raan_plane = wrap360(base_raan + np.random.uniform(-0.02, 0.02))
+
+            for s in range(sats_per_plane):
+
+                success = False
+
+                for _ in range(max_retries):
+
+                    # --- Mean anomaly with Walker phasing
+                    M = (
+                        s * 360.0 / sats_per_plane +
+                        p * F * 360.0 / (n_planes * sats_per_plane)
+                    )
+
+                    M += np.random.uniform(-0.05, 0.05)
+                    M = wrap360(M)
+
+                    # --- safe eccentricity
+                    ecc = safe_eccentricity(row.height_km)
+
+                    inc = float(np.clip(row.inclination_deg, 0.01, 179.99))
+                    argp = 0.0 if is_geo else 0.0
+
+                    try:
+                        tle1, tle2 = format_tle(
+                            satnum=satnum,
+                            epoch=epoch,
+                            inc=inc,
+                            raan=raan_plane,
+                            ecc=ecc,
+                            argp=argp,
+                            M=M,
+                            n=mean_motion,
+                            bstar=bstar
+                        )
+
+                        # --- Validate with SGP4 BEFORE accepting
+                        sat = Satrec.twoline2rv(tle1, tle2)
+
+                        # quick propagation check (epoch)
+                        e, _, _ = sat.sgp4(sat.jdsatepoch, sat.jdsatepochF)
+
+                        if e == 0:
+                            success = True
+                            break
+
+                    except Exception:
+                        continue
+
+                if not success:
+                    # skip only if truly impossible (very rare now)
+                    continue
+
+                tles.append({
+                    "system": row.system,
+                    "satnum": satnum,
+                    "plane": p,
+                    "slot": s,
+                    "tle1": tle1,
+                    "tle2": tle2
+                })
+
+                satnum += 1
+
+    return pd.DataFrame(tles)
+
+
 def repack_input( selection:list[str] , study_systems:list ) -> list :
     data = []
     for sel,mdata in zip(selection,study_systems):
@@ -186,7 +402,9 @@ def build_constellation_df( input:list ) -> pd.DataFrame :
         "raan0_deg"
       ]
     ) )
-
+#
+## use the slightly more realistic one
+generate_constellation_tles = generate_constellation_tles_realistic
 def create_tle_from_system_selection( selection , systems_information = systems_5Cs142dE ,
 					system_names = None , bVerbose=False ,
 					output_file = None ) :
