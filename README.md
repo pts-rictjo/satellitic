@@ -110,3 +110,17 @@ if __name__=='__main__':
     generate_tle_file_from_srs_df( df , filename="srs3048.tle" )
 ```
 
+# Running a non-visual GPU chunked simulation
+```
+from satellitic.simulator import jax_chunked_simulator
+jax_chunked_simulator( \
+    run_parameters = { 'dt':5e0,
+            'Nframes': 200 ,
+            'steps_per_frame':100 ,
+            'write positions'  : True  ,
+            'write velocities' : False ,
+            'write masses'     : False } ,
+    satellite_topology  = {'Earth':'data/local_small_tle.txt'} ,
+    bWriteTrajectory = True, trajectory_filename = None ,
+    bVerbose = True )
+```
