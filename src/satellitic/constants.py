@@ -15,8 +15,8 @@ lic_ = """
 """
 import numpy as np
 import numpy as xp
+import numpy as jnp
 from .special import strings_find
-#strings_find = np.strings.find
 
 try :
         import jax
@@ -30,7 +30,7 @@ except OSError:
 if bUseJax :
     import jax
     import jax.numpy as xp
-
+    import jax.numpy as jnp
 
 celestial_types = {
 'Star'      : 0 ,
@@ -595,6 +595,9 @@ class InteractionLedger ( object ) :
         self.build_massive_mask()
         self.set_mass_partition()
     
+    def interaction_rules(self) :
+        return ( [self.mass_rule_,self.mass_epsilon_] )
+
     def build_massive_mask(self, m=None, M_dom=None, epsilon = None ):
         if epsilon is None :
             epsilon = self.mass_epsilon_
@@ -643,6 +646,67 @@ class InteractionLedger ( object ) :
         
     def get_tle_pairs( self ):
         return ( self.tle_pairs_ )
+
+
+
+from typing import NamedTuple
+
+class StaticConfig(NamedTuple):
+    # Neighbor system
+    cell_size: float
+    cutoff: float
+    skin: float
+    max_neighbors: int
+    grid_capacity: int         # NEW: max particles per hash cell.
+
+    # Algorithm structure
+    has_satellites: bool
+    use_collisions: bool
+
+class DynamicParams(NamedTuple):
+    # Physics
+    G: float
+
+    # Mass partitions
+    idx_massive: jnp.ndarray
+    idx_light: jnp.ndarray
+
+    # Satellites
+    satellite_indices: jnp.ndarray
+    satellite_parent: jnp.ndarray
+    has_satellites: bool
+
+    # Planets (J2)
+    planet_indices: jnp.ndarray
+    planet_J2: jnp.ndarray
+    planet_R: jnp.ndarray
+    planet_MU: jnp.ndarray
+
+    # Collision
+    restitution: float
+
+    # Radii
+    radii: jnp.ndarray
+
+    # Masses (needed in step_fn)
+    m: jnp.ndarray
+
+    # Time
+    dt: float
+
+
+class SimStateNN(NamedTuple):
+    r: jnp.ndarray
+    v: jnp.ndarray
+    a: jnp.ndarray
+    neighbors: jnp.ndarray
+    ref_positions: jnp.ndarray   # for Verlet skin
+
+class SimState(NamedTuple):
+    r: jnp.ndarray
+    v: jnp.ndarray
+    a: jnp.ndarray
+
 
 solarsystem_notes = """https://www.jpl.nasa.gov/_edu/pdfs/scaless_reference.pdf"""
 solarsystem_legacy = { # Distance, Radius, revolution time, mass, type

@@ -468,6 +468,11 @@ def generate_fragments(key, pos, vel, total_mass, n_frag):
 
     return frag_r, frag_v, frag_m
 
+@jax.jit
+def collision_response_hashgrid( r, v, m, radii, config ):
+    print("NOT IMPLEMENTED: COLLISIONS ARE CURRENTLY UNDER DEVELOPMENT")
+    exit(1)
+
 def apply_collision_response( r, v, m, radii, neighbors, colliding,
         restitution = 1.0 ) :
     print("NOT IMPLEMENTED: COLLISIONS ARE CURRENTLY UNDER DEVELOPMENT")

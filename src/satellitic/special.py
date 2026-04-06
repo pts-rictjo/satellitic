@@ -171,6 +171,97 @@ if bUseJax :
         end = jnp.concatenate([start[1:], jnp.array([codes_sorted.shape[0]])])
         return order, codes_sorted, unique, start, end
 
+
+
+
+    # 27 neighbor offsets (STATIC)
+    CELL_OFFSETS = jnp.array([
+        [dx, dy, dz]
+        for dx in [-1,0,1]
+        for dy in [-1,0,1]
+        for dz in [-1,0,1]
+    ], dtype=jnp.int32)
+
+    def hash3(cell):
+        # 3D integer hash → 1D
+        return (
+            cell[:, 0] * 73856093 ^
+            cell[:, 1] * 19349663 ^
+            cell[:, 2] * 83492791
+        )
+
+    from functools import partial
+
+    @partial(jax.jit, static_argnames=["config"]) # , "grid_capacity"
+    def build_hash_grid(r, config):
+        # NOW HERE. THIS SHOULD BE A MORTON+HILBERT METHOD INSTEAD.
+        N = r.shape[0]
+        cell = jnp.floor(r / config.cell_size).astype(jnp.int32)
+        #
+        h = hash3(cell)
+        #
+        # Normalize hash to grid size
+        num_cells = 2 * N   # heuristic (low collision rate)
+        h = jnp.mod(h, num_cells)
+        #
+        # Sort by hash
+        order = jnp.argsort(h)
+        #
+        h_sorted = h[order]
+        r_sorted = r[order]
+        #
+        # Count how many per cell
+        counts = jnp.bincount(h_sorted, length=num_cells)
+        #
+        # Compute offsets
+        offsets = jnp.cumsum(counts) - counts
+        #
+        # Build fixed-size grid
+        grid = -jnp.ones((num_cells, config.grid_capacity), dtype=jnp.int32)
+        #
+        # Compute slot index per particle
+        idx_in_cell = jnp.arange(N) - offsets[h_sorted]
+        #
+        valid = idx_in_cell < config.grid_capacity
+
+        def safe_scatter(grid, h, idx, values, valid):
+
+            # Replace invalid indices with 0 (safe dummy)
+            h_safe   = jnp.where(valid, h, 0)
+            idx_safe = jnp.where(valid, idx, 0)
+
+            # Replace invalid values with existing grid values (no-op)
+            existing = grid[h_safe, idx_safe]
+            values_safe = jnp.where(valid, values, existing)
+
+            return grid.at[h_safe, idx_safe].set(values_safe)
+
+        values = order
+
+        grid = safe_scatter(
+            grid,
+            h_sorted,
+            idx_in_cell,
+            values,
+            valid
+        )
+        return grid, cell
+        """
+        #
+        max_size = h_sorted.shape[0]
+        h_sorted_safe = jnp.where(valid, h_sorted, -1)
+        idx_in_cell_safe = jnp.where(valid, idx_in_cell, -1)
+        values = jnp.where(valid, order, -1)
+        #
+        grid = grid.at[
+            h_sorted_safe, # [valid],
+            idx_in_cell_safe #[valid]
+        ].set(values) #order[valid])
+        #
+        return grid, cell
+        """
+
+
 else :
     jnp = np
 
