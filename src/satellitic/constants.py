@@ -17,6 +17,7 @@ import numpy as np
 import numpy as xp
 import numpy as jnp
 from .special import strings_find
+from .init import MU_EARTH_GRAV, R_EARTH_KM
 
 try :
         import jax
@@ -577,6 +578,158 @@ class TLESatellites ( object ) :
         return ( self.idx_planet_global_ , self.idx_satellites_global_ )
 
 
+
+class DictSatellites ( object ) :
+    def __init__( self , data_dict=None , planet=None , xp=np , tag='LEO',
+                 R_PLANET  = constants_solar_system['Earth-R']  ,
+                 MU_PLANET = constants_solar_system['Earth-MU'] ) :
+        self.components_    = None
+        self.data_dict_     = data_dict
+        self.planet_        = planet
+        self.R_PLANET_      = R_PLANET
+        self.MU_PLANET_     = MU_PLANET
+        self.r_             = None
+        self.v_             = None
+        self.m_             = None
+        self.tag_           = tag
+        self.names_         = []
+        self.types_         = []
+        self.idx_satellites_global_ = None
+        self.idx_planet_global_     = None
+        self.assign()
+        self.make_arrays(xp)
+
+    def rot1(self,angle):
+        c, s = np.cos(angle), np.sin(angle)
+        return np.array([
+            [1, 0, 0],
+            [0, c, -s],
+            [0, s,  c]
+        ])
+
+    def rot3(self,angle):
+        c, s = np.cos(angle), np.sin(angle)
+        return np.array([
+            [ c, -s, 0],
+            [ s,  c, 0],
+            [ 0,  0, 1]
+        ])
+
+    def generate_constellation_state(self, system=None ):
+        """
+        system: list of tuples
+        (height_km, n_planes, sats_per_plane, inclination_deg, raan0_deg)
+
+        returns:
+        positions : (N,3)
+        velocities: (N,3)
+        """
+
+        positions = []
+        velocities = []
+
+        for (h_km, n_planes, n_sat, inc_deg, raan0_deg) in system:
+
+            r = self.R_PLANET_ + h_km * 1e3
+            v = np.sqrt(self.MU_PLANET_ / r)
+
+            inc = np.deg2rad(inc_deg)
+            raan0 = np.deg2rad(raan0_deg)
+
+            for p in range(n_planes):
+
+                raan = raan0 + 2*np.pi * p / n_planes
+                R = self.rot3(raan) @ self.rot1(inc)
+
+                for s in range(n_sat):
+
+                    f = 2*np.pi * s / n_sat
+
+                    # orbital plane
+                    r_pqw = np.array([
+                        r*np.cos(f),
+                        r*np.sin(f),
+                        0.0
+                    ])
+
+                    v_pqw = np.array([
+                        -v*np.sin(f),
+                        v*np.cos(f),
+                        0.0
+                    ])
+
+                    r_eci = R @ r_pqw
+                    v_eci = R @ v_pqw
+
+                    positions.append(r_eci)
+                    velocities.append(v_eci)
+
+        return np.array(positions), np.array(velocities)
+
+
+    def satellite_masses(self, N, default=1000.0) :
+        return np.full(N, default) #.reshape(-1,1)
+
+    def assign( self ):
+        for item in self.data_dict_.items() :
+            r_sat, v_sat    = self.generate_constellation_state( system=item[1] )
+            m_sat           = self.satellite_masses(len(r_sat))
+
+            for i in range(len(m_sat)):
+                self.names_.append( item[0]+str(i) )
+                self.types_.append( celestial_types['Satellit'] )
+
+            if self.r_ is None :
+                self.r_ = r_sat
+                self.v_ = v_sat
+                self.m_ = m_sat
+            else :
+                self.r_ = np.concat((self.r_,r_sat))
+                self.v_ = np.concat((self.v_,v_sat))
+                self.m_ = np.concat((self.m_,m_sat))
+
+
+    def add_planet_dependency(self, name, r_planet, v_planet ):
+        self.r_ += r_planet
+        self.v_ += v_planet
+        if self.planet_ is None :
+            self.planet_ = name
+        elif not self.planet_ == name :
+            print ( 'error: planet missmatch', name, self.planet_ )
+
+    def make_arrays( self , xp = np ):
+        if self.r_ is None or self.v_ is None or self.m_ is None :
+            print('Warning: Could not retrieve phase space')
+        else :
+            self.r_ = xp.asarray(self.r_)
+            self.v_ = xp.asarray(self.v_)
+            self.m_ = xp.asarray(self.m_)
+            self.names_ = xp.asarray(self.names_)
+            self.types_ = xp.asarray(self.types_)
+
+    def phase_space(self):
+        if self.r_ is None or self.v_ is None or self.m_ is None :
+            print('Warning: Could not retrieve phase space')
+            return None
+        else :
+            return self.r_, self.v_, self.m_
+
+    def phase_state(self):
+        return self.r_, self.v_, self.m_, self.types_, self.names_
+
+    def block_indices(self,Ncurrent):
+        Nsat			= len(self.m_)
+        idx_leo			= np.array(range( Ncurrent, Ncurrent+Nsat ))
+        self.idx_satellites_global_ = idx_leo
+        return idx_leo
+
+    def set_global_planet_index(self, idx_planet) :
+        self.idx_planet_global_ = idx_planet
+
+    def get_index_pairs(self) :
+        return ( self.idx_planet_global_ , self.idx_satellites_global_ )
+
+
 class InteractionLedger ( object ) :
     def __init__( self , mass_rule = 'max' , mass_epsilon=1E-12 ) :
         self.components_    = None
@@ -765,7 +918,11 @@ def build_run_system( solarsystem   ,
     if not satellite_topology is None :
         for item in satellite_topology.items() :
             Ncurrent = len(solsystem.phase_space()[0])
-            satellites = TLESatellites( tle_file_name = item[1] ,
+            if 'str' in str(type(item[1])) :
+                satellites = TLESatellites( tle_file_name = item[1] ,
+                                planet = item[0] )
+            elif 'dict' in str(type(item[1])) :
+                satellites = DictSatellites( data_dict = item[1] ,
                                 planet = item[0] )
             satellites.set_global_planet_index( solsystem.find_indices_of( item[0] )[0] )
             satellites.add_planet_dependency( item[0] , *solsystem.phase_space(name = item[0])[:2] )

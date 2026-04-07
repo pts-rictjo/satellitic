@@ -69,7 +69,9 @@ def rot3(angle):
         [ 0,  0, 1]
     ])
 
-def generate_constellation_state( system ):
+def generate_constellation_state( system   ,
+                                 R_PLANET  = 6371000.0 ,
+                                 MU_PLANET = 3.986004418e14 ):
     """
     system: list of tuples
     (height_km, n_planes, sats_per_plane, inclination_deg, raan0_deg)
@@ -84,8 +86,8 @@ def generate_constellation_state( system ):
 
     for (h_km, n_planes, n_sat, inc_deg, raan0_deg) in system:
 
-        r = R_EARTH + h_km * 1e3
-        v = np.sqrt(MU_EARTH / r)
+        r = R_PLANET + h_km * 1e3
+        v = np.sqrt(MU_PLANET / r)
 
         inc = np.deg2rad(inc_deg)
         raan0 = np.deg2rad(raan0_deg)
@@ -119,6 +121,7 @@ def generate_constellation_state( system ):
                 velocities.append(v_eci)
 
     return np.array(positions), np.array(velocities)
+
 
 # ---------------------------------------------------------------------
 # TLE tooling
