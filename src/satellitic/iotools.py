@@ -19,7 +19,7 @@ from sgp4.conveniences import jday_datetime
 import numpy as np
 from datetime import datetime
 import struct
-from .constants import celestial_types
+from .constants import celestial_types, bUseJax
 
 TYPE_PLANET     = celestial_types['Planet']
 TYPE_STAR       = celestial_types['Star']
@@ -138,6 +138,7 @@ class TrajectoryManager:
         self.version = version
         self.dt_frame = dt_frame
         self.N_steps_written = 0
+        self.bUseJax = bUseJax
 
         if version == 1:
             # ---- legacy mode ----
@@ -180,13 +181,111 @@ class TrajectoryManager:
                 pt = np.asarray(particle_types, dtype=np.uint8)
                 self.f.write(pt.tobytes())
 
+    def open_for_read(self):
+
+        self.f = open(self.filename_, "rb")
+        magic = self.f.read(4)
+
+        if magic == self.MAGIC_V1:
+
+            self.version = 1
+            self.N, self.Nt, self.dt_frame = struct.unpack("iid", self.f.read(16))
+            self.flags = self.FLAG_POS
+
+            self.particle_types = np.frombuffer(
+                self.f.read(self.N), dtype=np.uint8
+            )
+
+            self.offset = self.f.tell()
+            self.fields_per_particle = 3  # xyz
+
+        elif magic == self.MAGIC_VX:
+
+            self.version, self.flags, self.N, self.Nt, self.dt_frame = struct.unpack(
+                "iiiid", self.f.read(20)
+            )
+
+            if not (self.flags & self.FLAG_DYN):
+                self.particle_types = np.frombuffer(
+                    self.f.read(self.N), dtype=np.uint8
+                )
+
+            self.offset = self.f.tell()
+
+            # ---- determine layout ----
+            self.fields_per_particle = 0
+
+            if self.flags & self.FLAG_POS:
+                self.fields_per_particle += 3
+            if self.flags & self.FLAG_VEL:
+                self.fields_per_particle += 3
+            if self.flags & self.FLAG_MASS:
+                self.fields_per_particle += 1
+            if self.flags & self.FLAG_TYPE:
+               self.fields_per_particle += 1
+
+        else:
+            raise ValueError("Unknown trajectory format")
+
+        # ---- memmap ----
+        if self.N > 0:
+            self.data = np.memmap(
+                self.filename_,
+                dtype=np.float32,
+                mode="r",
+                offset=self.offset,
+                shape=(self.Nt, self.N, self.fields_per_particle)
+            )
+
+    def get_frame(self, t, field="pos"):
+        frame = self.data[t]
+        if field == "pos":
+            return frame[:, :3]
+        elif field == "vel" and (self.flags & self.FLAG_VEL):
+            return frame[:, 3:6]
+        elif field == "mass" and (self.flags & self.FLAG_MASS):
+            idx = 6 if (self.flags & self.FLAG_VEL) else 3
+            return frame[:, idx]
+        else:
+            raise ValueError("Field not available")
+
+    def get_frame_batch(self, indices):
+        frames = [self.get_frame(int(t)) for t in indices]
+        return np.stack(frames)
+
+    def get_frame_jax(self, t):
+        return jnp.asarray(self.get_frame(t), dtype=jnp.float32)
+
+    def get_frame_batch_jax(self, indices):
+        return jnp.asarray(self.get_frame_batch(indices))
+
+    def sample_frames(self, key, batch_size):
+        Nt = self.Nt
+        if bUseJax:
+            idx = jax.random.randint(key, (batch_size,), 0, Nt)
+        else:
+            idx = numpy.random.randint(0, Nt,(batch_size,))
+        return self.get_frame_batch_jax(idx)
+
+    def get_sat_subset(self, t, indices):
+        return self.data[t, indices, :3]
+
+    def precompute_masks(self, type_id):
+        if not hasattr(self, "particle_types"):
+            return None
+        return np.where(self.particle_types == type_id)[0]
+
+    def iter_frames(self, step=1):
+        for t in range(0, self.Nt, step):
+            yield self.get_frame(t)
+
     #
     # Description
     #
     def description(self):
        desc_= """
 
-For canonical simulations you can define:
+# For canonical simulations you can define:
 tm = TrajectoryManager(
     "sim.trj",
     particle_types=types,
@@ -199,7 +298,7 @@ tm = TrajectoryManager(
     )
 )
 
-For grand canonical simulations you can specify:
+# For grand canonical simulations you can specify:
 tm = TrajectoryManager(
     "dyn.trj",
     dt_frame=1.0,
@@ -210,6 +309,26 @@ tm = TrajectoryManager(
 
 minimal write functional
 tm.write_step(r, types=types_step)
+
+# For reading in a JAX MonteCarlo loop :
+
+reader = TrajectoryManager("file.trj")
+reader.open_for_read()
+
+gs_pos = latlon_to_ecef(lat, lon)
+
+key = jax.random.PRNGKey(0)
+
+for i in range(Nmc):
+
+    key, sub = jax.random.split(key)
+
+    # Read operation here
+    sat_pos = reader.sample_frames(sub, batch_size=8)
+
+    IN = jax.vmap(snapshot_kernel, in_axes=(None,0,None,None))(
+        gs_pos, sat_pos, eirp, noise
+    ) 
 
        """
     # --------------------------------------------------
