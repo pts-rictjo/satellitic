@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "satellitic"
-version = "0.1.30"
+version = "0.1.31"
 authors = [
   { name="Richard Tjörnhammar", email="richard.tjornhammar@gmail.com" },
 ]
