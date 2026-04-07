@@ -121,7 +121,7 @@ def generate_constellation_state( system ):
     return np.array(positions), np.array(velocities)
 
 # ---------------------------------------------------------------------
-# TLE generation
+# TLE tooling
 # ---------------------------------------------------------------------
 def tle_checksum(line: str) -> int:
     cksum = 0
@@ -168,7 +168,7 @@ def format_tle(
     return l1, l2
 
 
-def generate_constellation_tles_realistic(
+def generate_constellation_tles_legacy003(
     df: pd.DataFrame,
     satnum_start: int = 10000,
     eccentricity: float = 1e-4,
@@ -244,12 +244,11 @@ def generate_constellation_tles_realistic(
                     "tle1": tle1,
                     "tle2": tle2
                 })
-
                 satnum += 1
-
     return pd.DataFrame(tles)
 
-def generate_constellation_tles_legacy(
+
+def generate_constellation_tles_legacy001(
     df: pd.DataFrame,
     satnum_start: int = 10000,
     eccentricity: float = 1e-4,
@@ -325,7 +324,6 @@ def generate_constellation_tles_legacy(
 def wrap360(x):
     return x % 360.0
 
-
 def safe_eccentricity(height_km):
     # tighter than before → avoids SGP4 instability
     if height_km > 35000:   # GEO
@@ -336,19 +334,15 @@ def safe_eccentricity(height_km):
         return np.random.uniform(1e-6, 1e-4)
 
 
-def mean_motion_from_altitude(height_km):
-    MU = 398600.4418
-    R_E = 6378.137
-
+def mean_motion_from_altitude( height_km,
+				MU = 398600.4418, R_E = 6378.137 ):
     a = R_E + height_km
     n_rad_s = np.sqrt(MU / a**3)
     n_rev_day = n_rad_s * 86400.0 / (2*np.pi)
-
     # hard safety clamp (SGP4 stability)
     return float(np.clip(n_rev_day, 0.1, 18.0))
 
-
-def generate_constellation_tles_safe(
+def generate_constellation_tles_legacy002(
     df: pd.DataFrame,
     satnum_start: int = 10000,
     eccentricity: float = 1e-4,
@@ -473,8 +467,240 @@ def build_constellation_df( input:list ) -> pd.DataFrame :
       ]
     ) )
 #
-## use the slightly more realistic one
-generate_constellation_tles = generate_constellation_tles_realistic
+def generate_constellation_tles(
+    df: pd.DataFrame,
+    satnum_start: int = 10000,
+    bstar: float = 0.0,
+    MU:float = 398600.4418,
+    R_E:float = 6378.137,
+    daysec:float = 86400.0,
+    mean_planet_motion:float = 1.0027,
+    far_planet_height:float=35000.,
+    bExtraChecked:bool=False
+):
+    from datetime import datetime, UTC
+    import numpy as np
+
+    def wrap360(x):
+        return x % 360.0
+
+    def mean_motion_from_altitude(height_km):
+        a = R_E + height_km
+        n_rad_s = np.sqrt(MU / a**3)
+        n_rev_day = n_rad_s * daysec / (2*np.pi)
+        #return float(np.clip(n_rev_day, 0.1, 17.9))
+        #return float(np.clip(n_rev_day, 0.5, 16.0))
+        return float(np.clip(n_rev_day, 1.0, 15.5))
+
+    def safe_eccentricity_height(height_km):
+        if height_km > far_planet_height:
+            return 1e-6
+        elif height_km > far_planet_height / 3.0:
+            return np.random.uniform(1e-6, 5e-5)
+        else:
+            return np.random.uniform(1e-6, 1e-4)
+
+    def safe_eccentricity_from_mean_motion(n):
+        n_rad_s = n * 2*np.pi / daysec
+        a = (MU / n_rad_s**2)**(1/3)
+        min_perigee = R_E + 100.0  # 100 km safety
+        max_e = 1.0 - (min_perigee / a)
+        max_e = max(1e-6, max_e)
+        return np.random.uniform(1e-6, max_e * 0.5)
+
+    def safe_eccentricity():
+        return np.random.uniform(0.0, 0.002)
+
+    def format_tle_old(
+        satnum, inc, raan, ecc, argp, M, n,
+        epoch_str="26001.00000000" ):
+        # --- Proper international designator (dummy but valid)
+        int_desig = "24001A  "
+        ecc_str = f"{int(ecc * 1e7):07d}"
+
+        line1 = (
+            f"1 {satnum:05d}U {int_desig}"
+            f"{epoch_str} "
+            f" .00000000  00000-0  00000-0 0  9990"
+        )
+        line2 = (
+            f"2 {satnum:05d} "
+            f"{inc:8.4f} "
+            f"{raan:8.4f} "
+            f"{ecc_str} "
+            f"{argp:8.4f} "
+            f"{M:8.4f} "
+            f"{n:11.8f}00000"
+        )
+        return line1, line2
+
+    def format_tle(satnum, inc, raan, ecc, argp, M, n, epoch_str="26001.00000000"):
+        # Ensure satellite number is 5 digits
+        if satnum > 99999:
+            satnum = satnum % 100000   # or satnum - 100000
+        satnum_str = f"{satnum:05d}"
+
+        # ----- Line 1 (69 chars) -----
+        # Initialize with spaces
+        line1 = [' '] * 69
+        line1[0] = '1'                     # column 1
+        # columns 3-7: satellite number
+        for i, ch in enumerate(satnum_str):
+            line1[2 + i] = ch
+        line1[7] = 'U'                     # column 8
+        # columns 10-17: international designator
+        intl = "24001A  "
+        for i, ch in enumerate(intl):
+            line1[9 + i] = ch
+        # columns 19-32: epoch (14 chars)
+        epoch = epoch_str.zfill(14)        # ensure 14 chars
+        for i, ch in enumerate(epoch):
+            line1[18 + i] = ch
+        # columns 34-43: n_dot (10 chars)
+        n_dot = " .00000000"
+        for i, ch in enumerate(n_dot):
+            line1[33 + i] = ch
+        # columns 45-52: n_ddot (8 chars)
+        n_ddot = " 00000-0"
+        for i, ch in enumerate(n_ddot):
+            line1[44 + i] = ch
+        # columns 54-61: B* (8 chars)
+        bstar = " 00000-0"
+        for i, ch in enumerate(bstar):
+            line1[53 + i] = ch
+        # column 63: ephemeris type
+        line1[62] = '0'
+        # columns 65-68: element number (4 chars)
+        elnum = " 9990"
+        for i, ch in enumerate(elnum):
+            line1[64 + i] = ch
+        # column 69: checksum (compute later)
+        line1_str = ''.join(line1[:68])   # first 68 chars
+        line1_str += str(checksum(line1_str))
+        # Replace the last character (already set) with the checksum
+        line1[68] = line1_str[68]
+
+        # ----- Line 2 (69 chars) -----
+        line2 = [' '] * 69
+        line2[0] = '2'
+        # columns 3-7: satellite number
+        for i, ch in enumerate(satnum_str):
+            line2[2 + i] = ch
+        # columns 9-16: inclination (8 chars, right-aligned)
+        inc_str = f"{inc:8.4f}"
+        for i, ch in enumerate(inc_str):
+            line2[8 + i] = ch
+        # columns 18-25: RAAN
+        raan_str = f"{raan:8.4f}"
+        for i, ch in enumerate(raan_str):
+            line2[17 + i] = ch
+        # columns 27-33: eccentricity (7 digits, no decimal)
+        ecc_int = int(ecc * 1e7)
+        ecc_str = f"{ecc_int:07d}"
+        for i, ch in enumerate(ecc_str):
+            line2[26 + i] = ch
+        # columns 35-42: arg of perigee
+        argp_str = f"{argp:8.4f}"
+        for i, ch in enumerate(argp_str):
+            line2[34 + i] = ch
+        # columns 44-51: mean anomaly
+        M_str = f"{M:8.4f}"
+        for i, ch in enumerate(M_str):
+            line2[43 + i] = ch
+        # columns 53-63: mean motion (11 chars)
+        n_str = f"{n:11.8f}"
+        for i, ch in enumerate(n_str):
+            line2[52 + i] = ch
+        # columns 65-68: revolution number (4 chars)
+        rev_num = "   0"
+        for i, ch in enumerate(rev_num):
+            line2[64 + i] = ch
+        # Checksum
+        line2_str = ''.join(line2[:68])
+        line2_str += str(checksum(line2_str))
+        line2[68] = line2_str[68]
+        return ''.join(line1), ''.join(line2)
+
+    def checksum(line_part: str) -> int:
+        total = 0
+        for ch in line_part:
+            if ch.isdigit():
+                total += int(ch)
+            elif ch == '-':
+                total += 1
+        return total % 10
+
+    tles = []
+    satnum = satnum_start
+    epoch = datetime.now(UTC)
+    if True:
+        epoch_str = "26001.00000000"
+    else:
+        epoch_str = None
+
+    for _, row in df.iterrows():
+
+        n_planes = int(row.n_planes)
+        sats_per_plane = int(row.sats_per_plane)
+
+        mean_motion = mean_motion_from_altitude(row.height_km)
+
+        if bExtraChecked and not (0.1 < mean_motion < 17.9):
+            continue
+
+        # GEO override
+        if row.height_km > far_planet_height:
+            mean_motion = mean_planet_motion
+
+        # Walker-like defaults
+        F = int(np.round(n_planes / 3)) if n_planes > 1 else 0
+        raan_span = 360.0 if n_planes > 1 else 0.0
+
+        for p in range(n_planes):
+
+            # Stable RAAN per plane (NO accumulation)
+            base_raan = row.raan0_deg + p * raan_span / n_planes
+            raan_plane = wrap360(base_raan + np.random.uniform(-0.02, 0.02))
+
+            for s in range(sats_per_plane):
+
+                # Mean anomaly with phasing
+                M = (
+                    s * 360.0 / sats_per_plane +
+                    p * F * 360.0 / (n_planes * sats_per_plane)
+                )
+                M = wrap360(M + np.random.uniform(-0.05, 0.05))
+
+                #ecc = safe_eccentricity(row.height_km)
+                #ecc = safe_eccentricity(mean_motion)
+                #ecc = safe_eccentricity()
+                ecc = 0.0
+                argp = 0.0
+
+                inc = float(np.clip(row.inclination_deg, 0.01, 179.99))
+
+                l1, l2 = format_tle(
+                  satnum=satnum,
+                  inc=inc,
+                  raan=raan_plane,
+                  ecc=ecc,
+                  argp=argp,
+                  M=M,
+                  n=mean_motion
+                )
+
+                tles.append({
+                    "system": row.system,
+                    "satnum": satnum,
+                    "plane": p,
+                    "slot": s,
+                    "tle1": l1,
+                    "tle2": l2
+                })
+                satnum += 1
+    return pd.DataFrame(tles)
+
+
 def create_tle_from_system_selection( selection , systems_information = systems_5Cs142dE ,
 					system_names = None , bVerbose=False ,
 					output_file = None ) :
