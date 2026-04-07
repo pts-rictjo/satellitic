@@ -307,6 +307,9 @@ else :
 def normalize(v):
     return v / (jnp.linalg.norm(v, axis=-1, keepdims=True) + 1e-12)
 
+def safe_norm(x, eps=1e-9):
+    return jnp.sqrt(jnp.sum(x*x, axis=-1) + eps)
+
 if __name__ == '__main__':
     a = ["hello world", "test string", "abcabc", "no match"]
     print ( strings_find(a, "abc") )
