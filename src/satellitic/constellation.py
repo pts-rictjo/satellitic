@@ -51,6 +51,76 @@ def mean_motion_rev_per_day(alt_km: float) -> float:
     return n_rad_s * 86400.0 / (2.0 * np.pi)
 
 # ---------------------------------------------------------------------
+# Generate r,v directly from list entries
+# ---------------------------------------------------------------------
+def rot1(angle):
+    c, s = np.cos(angle), np.sin(angle)
+    return np.array([
+        [1, 0, 0],
+        [0, c, -s],
+        [0, s,  c]
+    ])
+
+def rot3(angle):
+    c, s = np.cos(angle), np.sin(angle)
+    return np.array([
+        [ c, -s, 0],
+        [ s,  c, 0],
+        [ 0,  0, 1]
+    ])
+
+def generate_constellation_state( system ):
+    """
+    system: list of tuples
+    (height_km, n_planes, sats_per_plane, inclination_deg, raan0_deg)
+
+    returns:
+      positions : (N,3)
+      velocities: (N,3)
+    """
+
+    positions = []
+    velocities = []
+
+    for (h_km, n_planes, n_sat, inc_deg, raan0_deg) in system:
+
+        r = R_EARTH + h_km * 1e3
+        v = np.sqrt(MU_EARTH / r)
+
+        inc = np.deg2rad(inc_deg)
+        raan0 = np.deg2rad(raan0_deg)
+
+        for p in range(n_planes):
+
+            raan = raan0 + 2*np.pi * p / n_planes
+            R = rot3(raan) @ rot1(inc)
+
+            for s in range(n_sat):
+
+                f = 2*np.pi * s / n_sat
+
+                # orbital plane
+                r_pqw = np.array([
+                    r*np.cos(f),
+                    r*np.sin(f),
+                    0.0
+                ])
+
+                v_pqw = np.array([
+                    -v*np.sin(f),
+                     v*np.cos(f),
+                     0.0
+                ])
+
+                r_eci = R @ r_pqw
+                v_eci = R @ v_pqw
+
+                positions.append(r_eci)
+                velocities.append(v_eci)
+
+    return np.array(positions), np.array(velocities)
+
+# ---------------------------------------------------------------------
 # TLE generation
 # ---------------------------------------------------------------------
 def tle_checksum(line: str) -> int:
