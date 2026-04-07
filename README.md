@@ -80,14 +80,7 @@ To write a trajectory file you can specify
 ```
 
 # Creating a TLE file from default system definitions
-In order to create TLE definitions for systems, any viable dictionary can be supplied to the below defined function. The dictionaries of the systems as defined in the [ITU defintions](https://www.itu.int/md/R23-WP5C-C-0142/en) are already included as defaults:
-```
-from satellitic.constellation import create_tle_from_system_selection
-if __name__=='__main__':
-    selection		= ['A','B','D']
-    tle_df = create_tle_from_system_selection( selection , output_file = "constellation_systems-" + '-'.join(selection) + ".tle" )
-```
-## creating TLE:s from a SRS database
+If you have access to the SRS database then this method will create TLE:s from it:
 ```
     from satellitic.constellation import SRSDatabase, get_active_constellations, build_unique_satellite_rows, generate_tle_file_from_srs_df
 
@@ -110,17 +103,26 @@ if __name__=='__main__':
     generate_tle_file_from_srs_df( df , filename="srs3048.tle" )
 ```
 
-# Running a non-visual GPU chunked simulation
+# Running a non-visual GPU chunked simulation using dictionary defined satellites
+A viable dictionary can be supplied to the below defined function satellite topology (instead of a tle file name). The dictionaries of the systems as defined in the [ITU defintions](https://www.itu.int/md/R23-WP5C-C-0142/en) are already included as defaults:
+```
+from satellitic.constants import systems_5Cs142dE
+if __name__=='__main__':
+    selection		= ['A','B','D']
+    systems = { s_:systems_5Cs142dE[s_] for s_ in selection }
+    print ( systems )
+```
+These can be directly supplied to simulator functions:
 ```
 from satellitic.simulator import jax_chunked_simulator
 jax_chunked_simulator( \
-    run_parameters = { 'dt':5e0,
-            'Nframes': 200 ,
+    run_parameters = { 'dt':5e-1,
+            'Nframes': 20000 ,
             'steps_per_frame':100 ,
             'write positions'  : True  ,
             'write velocities' : False ,
             'write masses'     : False } ,
-    satellite_topology  = {'Earth':'data/local_small_tle.txt'} ,
+    satellite_topology  = { 'Earth':systems } ,
     bWriteTrajectory = True, trajectory_filename = None ,
     bVerbose = True )
 ```
